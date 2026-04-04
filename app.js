@@ -121,7 +121,7 @@ let instanceCounter = 0;
 let collectionHidden = false;
 let logHidden = true;
 let matchState = createEmptyMatchState();
-let roomSyncState = { enabled: false, role: '', battleControlsEnabled: false, pendingSetupRequest: false, pendingMoveRequest: false, pendingAttackRequest: false, onSetupPlaceRequest: null, onMoveRequest: null, onAttackRequest: null, onItemUseRequest: null, onFinishItemPhaseRequest: null, onEndTurnRequest: null };
+let roomSyncState = { enabled: false, role: '', battleControlsEnabled: false, pendingSetupRequest: false, pendingMoveRequest: false, pendingAttackRequest: false, pendingItemUseRequest: false, pendingFinishItemPhaseRequest: false, pendingEndTurnRequest: false, onSetupPlaceRequest: null, onMoveRequest: null, onAttackRequest: null, onItemUseRequest: null, onFinishItemPhaseRequest: null, onEndTurnRequest: null };
 
 
 function createEmptyMatchState() {
@@ -178,6 +178,15 @@ function isRoomActiveBattlePlayer() {
   return !!playerKey && playerKey === matchState.currentPlayer;
 }
 
+function clearRoomPendingRequests() {
+  roomSyncState.pendingSetupRequest = false;
+  roomSyncState.pendingMoveRequest = false;
+  roomSyncState.pendingAttackRequest = false;
+  roomSyncState.pendingItemUseRequest = false;
+  roomSyncState.pendingFinishItemPhaseRequest = false;
+  roomSyncState.pendingEndTurnRequest = false;
+}
+
 function isRoomBattleLocked() {
   return roomSyncState.enabled && matchState.phase === 'battle' && !roomSyncState.battleControlsEnabled;
 }
@@ -192,10 +201,7 @@ function setRoomSyncConfig(config = {}) {
   roomSyncState.onItemUseRequest = typeof config.onItemUseRequest === 'function' ? config.onItemUseRequest : null;
   roomSyncState.onFinishItemPhaseRequest = typeof config.onFinishItemPhaseRequest === 'function' ? config.onFinishItemPhaseRequest : null;
   roomSyncState.onEndTurnRequest = typeof config.onEndTurnRequest === 'function' ? config.onEndTurnRequest : null;
-  roomSyncState.pendingSetupRequest = false;
-  roomSyncState.pendingMoveRequest = false;
-  roomSyncState.pendingAttackRequest = false;
-  roomSyncState.pendingAttackRequest = false;
+  clearRoomPendingRequests();
   renderMatchArea();
 }
 
@@ -1894,6 +1900,8 @@ function confirmSelectedItemUse() {
 
   const selectedTargetIndex = getSelectedItemTargetIndex();
   if (roomSyncState.enabled && isRoomActiveBattlePlayer() && typeof roomSyncState.onItemUseRequest === 'function') {
+    roomSyncState.pendingItemUseRequest = true;
+    renderMatchArea();
     roomSyncState.onItemUseRequest({
       player: matchState.currentPlayer,
       cardId: selectedCardId,
@@ -2252,6 +2260,9 @@ function renderBoard() {
 
       const visual = document.createElement('div');
       visual.className = `unit-card-visual ${unit.owner === 'player1' ? 'p1' : 'p2'}`;
+      const hoverEffectText = String(unitCardMeta?.effect_text || '効果なし').trim() || '効果なし';
+      visual.title = `${unit.name}
+${hoverEffectText}`;
       visual.innerHTML = `
         <img class="board-card-image" src="${getCardImagePath(unitCardMeta)}" alt="${unit.name}" loading="lazy" />
         <div class="board-card-overlay top">
@@ -2423,7 +2434,8 @@ function renderMatchMeta() {
   const roomBattleLocked = isRoomBattleLocked();
   const roomMovePending = roomSyncState.enabled && roomSyncState.pendingMoveRequest;
   const roomAttackPending = roomSyncState.enabled && roomSyncState.pendingAttackRequest;
-  const roomActionPending = roomMovePending || roomAttackPending;
+  const roomItemPending = roomSyncState.enabled && (roomSyncState.pendingItemUseRequest || roomSyncState.pendingFinishItemPhaseRequest || roomSyncState.pendingEndTurnRequest);
+  const roomActionPending = roomMovePending || roomAttackPending || roomItemPending;
   syncActionButtonsState({
     itemPhaseDoneDisabled: roomBattleLocked || roomActionPending || !itemWindowOpen || itemSelected || !!pendingAction,
     moveDisabled: roomBattleLocked || roomActionPending || !battleActive || itemWindowOpen || pendingRedeployActive || !!pendingAction || postAttackMoveActive,
@@ -2451,6 +2463,7 @@ function renderMatchArea() {
 
 function beginTurn(playerKey) {
   matchState.currentPlayer = playerKey;
+  clearRoomPendingRequests();
   clearExpiredStartOfTurnEffects(playerKey);
   matchState.turnState = { moved: false, movedUnitId: null, attacked: false, attackCount: 0, attackUnitId: null, itemWindowOpen: true, itemUsed: false, selectedItemCardId: null, selectedItemTargetIndex: null, pendingAction: null, acceleratedUnitId: null, acceleratedMovesRemaining: 0, postAttackMoveUnitId: null, pendingRedeployCardId: null };
   revivePendingUnitsForPlayer(playerKey);
@@ -2512,6 +2525,8 @@ function finishItemPhaseLocal() {
 function finishItemPhase() {
   if (matchState.phase !== 'battle' || !isItemWindowOpen()) return;
   if (roomSyncState.enabled && isRoomActiveBattlePlayer() && typeof roomSyncState.onFinishItemPhaseRequest === 'function') {
+    roomSyncState.pendingFinishItemPhaseRequest = true;
+    renderMatchArea();
     roomSyncState.onFinishItemPhaseRequest({ player: matchState.currentPlayer });
     return;
   }
@@ -2543,6 +2558,8 @@ function endTurnLocal() {
 function endTurn() {
   if (matchState.phase !== 'battle') return;
   if (roomSyncState.enabled && isRoomActiveBattlePlayer() && typeof roomSyncState.onEndTurnRequest === 'function') {
+    roomSyncState.pendingEndTurnRequest = true;
+    renderMatchArea();
     roomSyncState.onEndTurnRequest({ player: matchState.currentPlayer });
     return;
   }
@@ -3273,7 +3290,7 @@ function applyRoomMove(data = {}) {
   if (!unitId || Number.isNaN(sourceIndex) || Number.isNaN(targetIndex)) return false;
 
   const pendingAction = getPendingAction();
-  roomSyncState.pendingMoveRequest = false;
+  clearRoomPendingRequests();
   if (data.currentPlayer) matchState.currentPlayer = data.currentPlayer;
 
   if (pendingAction && pendingAction.type === 'move' && pendingAction.unitId === unitId && Number(pendingAction.targetIndex) === targetIndex) {
@@ -3299,7 +3316,7 @@ function applyRoomMove(data = {}) {
 function applyRoomAttack(data = {}) {
   const unitId = String(data.unitId || '');
   const targetIndex = Number(data.targetIndex);
-  roomSyncState.pendingAttackRequest = false;
+  clearRoomPendingRequests();
   if (data.currentPlayer) matchState.currentPlayer = data.currentPlayer;
   if (!unitId || Number.isNaN(targetIndex)) return false;
 
@@ -3329,15 +3346,18 @@ function applyRoomAttack(data = {}) {
 }
 
 function applyRoomItemUse(data = {}) {
+  clearRoomPendingRequests();
   return performItemUseLocal(String(data.cardId || ''), data.targetIndex ?? null, data.player || matchState.currentPlayer);
 }
 
 function applyRoomFinishItemPhase(data = {}) {
+  clearRoomPendingRequests();
   if (data.player) matchState.currentPlayer = data.player;
   return finishItemPhaseLocal();
 }
 
 function applyRoomEndTurn(data = {}) {
+  clearRoomPendingRequests();
   const ok = endTurnLocal();
   if (ok && typeof data.round === 'number') {
     matchState.round = data.round;
@@ -3400,22 +3420,17 @@ function exportRoomSyncSnapshot() {
     },
     pendingRevives: Array.isArray(matchState.pendingRevives) ? [...matchState.pendingRevives] : [],
     pendingRedeploys: Array.isArray(matchState.pendingRedeploys) ? [...matchState.pendingRedeploys] : [],
-    winner: matchState.winner || '',
   };
 }
 
 function applyRoomStateSync(data = {}) {
-  const wasFinished = matchState.phase === 'finished';
+  clearRoomPendingRequests();
   if (typeof data.currentPlayer === 'string') matchState.currentPlayer = data.currentPlayer;
   if (typeof data.round === 'number') matchState.round = data.round;
   if (typeof data.phase === 'string') matchState.phase = data.phase;
-  if (typeof data.winner === 'string' && data.winner) matchState.winner = data.winner;
   if (matchState.turnState) {
     if (typeof data.itemPhaseOpen === 'boolean') matchState.turnState.itemWindowOpen = data.itemPhaseOpen;
     if (typeof data.itemUsed === 'boolean') matchState.turnState.itemUsed = data.itemUsed;
-  }
-  if (!wasFinished && matchState.phase === 'finished' && matchState.winner) {
-    addLog(matchState.winner);
   }
   renderMatchArea();
   return true;
