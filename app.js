@@ -3400,16 +3400,22 @@ function exportRoomSyncSnapshot() {
     },
     pendingRevives: Array.isArray(matchState.pendingRevives) ? [...matchState.pendingRevives] : [],
     pendingRedeploys: Array.isArray(matchState.pendingRedeploys) ? [...matchState.pendingRedeploys] : [],
+    winner: matchState.winner || '',
   };
 }
 
 function applyRoomStateSync(data = {}) {
+  const wasFinished = matchState.phase === 'finished';
   if (typeof data.currentPlayer === 'string') matchState.currentPlayer = data.currentPlayer;
   if (typeof data.round === 'number') matchState.round = data.round;
   if (typeof data.phase === 'string') matchState.phase = data.phase;
+  if (typeof data.winner === 'string' && data.winner) matchState.winner = data.winner;
   if (matchState.turnState) {
     if (typeof data.itemPhaseOpen === 'boolean') matchState.turnState.itemWindowOpen = data.itemPhaseOpen;
     if (typeof data.itemUsed === 'boolean') matchState.turnState.itemUsed = data.itemUsed;
+  }
+  if (!wasFinished && matchState.phase === 'finished' && matchState.winner) {
+    addLog(matchState.winner);
   }
   renderMatchArea();
   return true;

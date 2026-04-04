@@ -1,7 +1,6 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 
@@ -37,20 +36,6 @@ const HOME_COLUMN = { player1: 0, player2: 4 };
 const PLAYER_ROLE_MAP = { p1: 'player1', p2: 'player2' };
 const DUPLICATE_WINDOW_MS = 700;
 const RECONNECT_GRACE_MS = 5 * 60 * 1000;
-
-
-function getLanUrls(port) {
-  const nets = os.networkInterfaces();
-  const urls = [];
-  for (const entries of Object.values(nets)) {
-    for (const info of entries || []) {
-      if (!info || info.internal) continue;
-      if (info.family !== 'IPv4') continue;
-      urls.push(`http://${info.address}:${port}`);
-    }
-  }
-  return [...new Set(urls)];
-}
 
 function loadCards() {
   try {
@@ -119,6 +104,7 @@ function participantSnapshot(slot) {
 }
 
 function computeRoomState(room) {
+  if (room.game?.phase === 'finished') return 'finished';
   if (room.game) return 'playing';
   if (room.p1 && room.p2) return 'ready';
   return 'waiting';
@@ -265,7 +251,42 @@ function createInitialGameState(room) {
     turnState: createTurnState(),
     pendingRevives: [],
     pendingRedeploys: [],
+    winner: '',
   };
+}
+
+function getEliminationFinishMessage(game) {
+  const p1Alive = game.board.filter((unit) => unit && unit.owner === 'player1').length;
+  const p2Alive = game.board.filter((unit) => unit && unit.owner === 'player2').length;
+  const p1Active = p1Alive > 0 || (Array.isArray(game.pendingRedeploys) && game.pendingRedeploys.some((item) => item && item.owner === 'player1'));
+  const p2Active = p2Alive > 0 || (Array.isArray(game.pendingRedeploys) && game.pendingRedeploys.some((item) => item && item.owner === 'player2'));
+  if (!p1Active && !p2Active) return '両者全滅により引き分けです';
+  if (!p1Active) return 'プレイヤー2の全滅勝ちです';
+  if (!p2Active) return 'プレイヤー1の全滅勝ちです';
+  return '';
+}
+
+function finalizeRoomGameIfNeeded(room, explicitMessage = '') {
+  if (!room?.game || room.game.phase === 'finished') return false;
+  const finishMessage = explicitMessage || getEliminationFinishMessage(room.game);
+  if (!finishMessage) return false;
+  room.game.phase = 'finished';
+  room.game.winner = finishMessage;
+  room.roomState = 'finished';
+  room.updatedAt = Date.now();
+  [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([role, slot]) => {
+    if (!slot?.ws) return;
+    send(slot.ws, roomSnapshot(room, role));
+    send(slot.ws, {
+      type: 'game_finished',
+      roomId: room.roomId,
+      message: finishMessage,
+      phase: room.game.phase,
+      currentPlayer: room.game.currentPlayer,
+      round: room.game.round,
+    });
+  });
+  return true;
 }
 
 function indexToCoord(index) {
@@ -647,8 +668,9 @@ function mergePublicStateSnapshot(room, payload, playerKey) {
   const board = sanitizeBoardSnapshot(payload.board);
   if (!board) return false;
   room.game.board = board;
-  room.game.phase = payload.phase === 'setup' || payload.phase === 'battle' ? payload.phase : room.game.phase;
+  room.game.phase = ['setup', 'battle', 'finished'].includes(payload.phase) ? payload.phase : room.game.phase;
   room.game.currentPlayer = payload.currentPlayer === 'player1' || payload.currentPlayer === 'player2' ? payload.currentPlayer : room.game.currentPlayer;
+  room.game.winner = typeof payload.winner === 'string' ? payload.winner : (room.game.winner || '');
   room.game.round = Math.max(1, Number(payload.round || room.game.round || 1));
   room.game.setupStepIndex = Math.max(0, Number(payload.setupStepIndex || room.game.setupStepIndex || 0));
   room.game.placedInCurrentStep = Math.max(0, Number(payload.placedInCurrentStep || room.game.placedInCurrentStep || 0));
@@ -673,6 +695,8 @@ function mergePublicStateSnapshot(room, payload, playerKey) {
   });
 
   room.updatedAt = Date.now();
+  room.roomState = computeRoomState(room);
+  const finishMessage = room.game.phase === 'finished' ? (room.game.winner || getEliminationFinishMessage(room.game) || '対戦が終了しました') : getEliminationFinishMessage(room.game);
   const payloadOut = {
     type: 'battle_state_synced',
     roomId: room.roomId,
@@ -680,12 +704,19 @@ function mergePublicStateSnapshot(room, payload, playerKey) {
     currentPlayer: room.game.currentPlayer,
     round: room.game.round,
     phase: room.game.phase,
+    winner: room.game.winner || '',
     itemPhaseOpen: room.game.itemPhaseOpen,
     itemUsed: room.game.itemUsed,
   };
-  [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([_, slot]) => {
-    if (slot?.ws) send(slot.ws, payloadOut);
+  [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([role, slot]) => {
+    if (slot?.ws) {
+      send(slot.ws, payloadOut);
+      send(slot.ws, roomSnapshot(room, role));
+    }
   });
+  if (finishMessage) {
+    finalizeRoomGameIfNeeded(room, finishMessage);
+  }
   return true;
 }
 
@@ -693,6 +724,10 @@ function assertRoomAndMeta(roomId, ws) {
   const room = rooms.get(roomId);
   if (!room || !room.game) {
     send(ws, { type: 'error', message: '試合中のルームが見つかりません。' });
+    return null;
+  }
+  if (room.game.phase === 'finished' || room.roomState === 'finished') {
+    send(ws, { type: 'error', message: 'この試合はすでに終了しています。' });
     return null;
   }
   const meta = ws.meta;
@@ -1269,13 +1304,6 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(PORT, HOST, () => {
-  const lanUrls = getLanUrls(PORT);
-  console.log('RED VEIN room server が起動しました。');
-  console.log(`ローカルURL: http://localhost:${PORT}`);
-  lanUrls.forEach((url) => console.log(`同じネットワーク用URL: ${url}`));
-  if (process.env.PUBLIC_BASE_URL) {
-    console.log(`公開URL: ${process.env.PUBLIC_BASE_URL}`);
-  }
-  console.log('ヘルスチェックURL: /healthz');
+  console.log(`RED VEIN room server: http://localhost:${PORT}`);
   console.log('この黒い画面は閉じずに、そのままにしてください。');
 });

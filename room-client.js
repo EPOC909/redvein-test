@@ -523,6 +523,24 @@ ${roomLog.textContent}` : line;
       return;
     }
 
+    if (data.type === 'game_finished') {
+      const api = window.REDVEIN_ROOM_API;
+      currentRoomState = 'finished';
+      currentRoomStateLabel.textContent = currentRoomState;
+      if (api && typeof api.applyRoomStateSync === 'function') {
+        api.applyRoomStateSync({
+          phase: 'finished',
+          currentPlayer: data.currentPlayer || currentBattlePlayer,
+          round: data.round,
+          winner: data.message || '',
+        });
+      }
+      if (data.message) writeLog(data.message);
+      updateStartUi();
+      configureRoomSync();
+      return;
+    }
+
     if (data.type === 'server_notice') {
       writeLog(data.message || 'サーバー通知');
       return;
