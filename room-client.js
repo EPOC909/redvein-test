@@ -127,6 +127,8 @@ ${roomLog.textContent}` : line;
   function installLobbyEnhancements() {
     if (!roomSection || !roomSectionHeader || roomHero) return;
 
+    roomSection.querySelectorAll(':scope > .room-hero').forEach((node) => node.remove());
+
     roomHero = document.createElement('section');
     roomHero.className = 'room-hero card-subpanel';
     roomHero.innerHTML = `
@@ -289,10 +291,7 @@ ${roomLog.textContent}` : line;
 
   function ensureRoomActionPanel() {
     if (roomActionBox) return;
-    const roomSection = document.querySelector('.room-section');
-    const inviteSection = document.querySelector('#inviteUrlBox')?.closest('.room-status-box');
-    const fallbackAnchor = document.querySelector('.room-start-box')?.parentElement || document.querySelector('.room-controls-panel');
-    const anchor = roomSection || fallbackAnchor;
+    const anchor = document.querySelector('.room-start-box')?.parentElement || document.querySelector('.room-controls-panel');
     if (!anchor) return;
 
     roomActionBox = document.createElement('section');
@@ -306,11 +305,7 @@ ${roomLog.textContent}` : line;
       </div>
       <div class="room-action-status" id="roomActionStatus">同じルームで再戦・リセット・ルーム終了ができます。</div>
     `;
-    if (inviteSection && inviteSection.parentNode) {
-      inviteSection.parentNode.insertBefore(roomActionBox, inviteSection);
-    } else {
-      anchor.appendChild(roomActionBox);
-    }
+    anchor.appendChild(roomActionBox);
 
     roomActionStatus = roomActionBox.querySelector('#roomActionStatus');
     roomRematchButton = roomActionBox.querySelector('[data-room-action="rematch"]');
