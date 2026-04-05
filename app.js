@@ -123,6 +123,200 @@ let logHidden = true;
 let matchState = createEmptyMatchState();
 let roomSyncState = { enabled: false, role: '', battleControlsEnabled: false, pendingSetupRequest: false, pendingMoveRequest: false, pendingAttackRequest: false, pendingItemUseRequest: false, pendingFinishItemPhaseRequest: false, pendingEndTurnRequest: false, onSetupPlaceRequest: null, onMoveRequest: null, onAttackRequest: null, onItemUseRequest: null, onFinishItemPhaseRequest: null, onEndTurnRequest: null };
 
+const SFX_STORAGE_KEY = 'redvein_sfx_enabled_v1';
+const SFX_MASTER_VOLUME = 0.08;
+let sfxEnabled = loadSfxEnabled();
+let sfxAudioContext = null;
+let sfxMasterGainNode = null;
+let sfxToggleButton = null;
+let lastFinishedSfxMessage = '';
+
+function loadSfxEnabled() {
+  try {
+    const raw = localStorage.getItem(SFX_STORAGE_KEY);
+    if (raw === null) return true;
+    return raw !== '0';
+  } catch (_) {
+    return true;
+  }
+}
+
+function saveSfxEnabled() {
+  try {
+    localStorage.setItem(SFX_STORAGE_KEY, sfxEnabled ? '1' : '0');
+  } catch (_) {
+    // no-op
+  }
+}
+
+function getSfxAudioContext() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  if (!sfxAudioContext) {
+    sfxAudioContext = new AudioContextClass();
+    sfxMasterGainNode = sfxAudioContext.createGain();
+    sfxMasterGainNode.gain.value = SFX_MASTER_VOLUME;
+    sfxMasterGainNode.connect(sfxAudioContext.destination);
+  }
+  return sfxAudioContext;
+}
+
+function updateSfxToggleButton() {
+  if (!sfxToggleButton) return;
+  sfxToggleButton.textContent = sfxEnabled ? 'SE ON' : 'SE OFF';
+  sfxToggleButton.style.opacity = sfxEnabled ? '0.95' : '0.65';
+  sfxToggleButton.style.borderColor = sfxEnabled ? 'rgba(255, 160, 160, 0.55)' : 'rgba(255, 255, 255, 0.18)';
+}
+
+async function unlockSfx() {
+  const context = getSfxAudioContext();
+  if (!context) return;
+  if (context.state === 'suspended') {
+    try {
+      await context.resume();
+    } catch (_) {
+      // no-op
+    }
+  }
+}
+
+function setSfxEnabled(nextValue) {
+  sfxEnabled = !!nextValue;
+  saveSfxEnabled();
+  updateSfxToggleButton();
+  if (sfxEnabled) {
+    unlockSfx();
+    playSfx('confirm');
+  }
+}
+
+function createSfxToggleButton() {
+  if (!document.body || document.getElementById('redveinSfxToggle')) return;
+  sfxToggleButton = document.createElement('button');
+  sfxToggleButton.id = 'redveinSfxToggle';
+  sfxToggleButton.type = 'button';
+  sfxToggleButton.setAttribute('aria-label', '効果音のオンオフ');
+  Object.assign(sfxToggleButton.style, {
+    position: 'fixed',
+    right: '14px',
+    bottom: '14px',
+    zIndex: '9999',
+    padding: '8px 12px',
+    borderRadius: '999px',
+    border: '1px solid rgba(255, 160, 160, 0.45)',
+    background: 'rgba(23, 10, 18, 0.86)',
+    color: '#ffe7ee',
+    fontSize: '12px',
+    fontWeight: '700',
+    letterSpacing: '0.06em',
+    cursor: 'pointer',
+    boxShadow: '0 6px 16px rgba(0, 0, 0, 0.28)',
+    backdropFilter: 'blur(6px)',
+  });
+  sfxToggleButton.addEventListener('click', () => {
+    setSfxEnabled(!sfxEnabled);
+  });
+  document.body.appendChild(sfxToggleButton);
+  updateSfxToggleButton();
+}
+
+function setupSfx() {
+  createSfxToggleButton();
+  const unlockHandler = () => {
+    if (!sfxEnabled) return;
+    unlockSfx();
+  };
+  window.addEventListener('pointerdown', unlockHandler, { passive: true });
+  window.addEventListener('keydown', unlockHandler, { passive: true });
+  window.addEventListener('touchstart', unlockHandler, { passive: true });
+}
+
+function scheduleTone(context, options = {}) {
+  if (!context || !sfxMasterGainNode) return;
+  const {
+    start = context.currentTime,
+    duration = 0.1,
+    release = 0.08,
+    frequency = 440,
+    endFrequency = null,
+    type = 'sine',
+    gain = 0.5,
+  } = options;
+
+  const oscillator = context.createOscillator();
+  const gainNode = context.createGain();
+
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(Math.max(40, Number(frequency) || 440), start);
+  if (endFrequency != null && Number(endFrequency) > 0) {
+    oscillator.frequency.exponentialRampToValueAtTime(Math.max(40, Number(endFrequency)), start + duration);
+  }
+
+  gainNode.gain.setValueAtTime(0.0001, start);
+  gainNode.gain.linearRampToValueAtTime(Math.max(0.0001, gain), start + 0.01);
+  gainNode.gain.exponentialRampToValueAtTime(0.0001, start + duration + release);
+
+  oscillator.connect(gainNode);
+  gainNode.connect(sfxMasterGainNode);
+
+  oscillator.start(start);
+  oscillator.stop(start + duration + release + 0.02);
+}
+
+function playSfx(kind) {
+  if (!sfxEnabled) return;
+  const context = getSfxAudioContext();
+  if (!context || !sfxMasterGainNode) return;
+  if (context.state === 'suspended') {
+    context.resume().catch(() => {});
+  }
+
+  const start = context.currentTime + 0.005;
+
+  switch (kind) {
+    case 'attack':
+      scheduleTone(context, { start, duration: 0.08, release: 0.06, frequency: 210, endFrequency: 120, type: 'sawtooth', gain: 0.85 });
+      scheduleTone(context, { start: start + 0.012, duration: 0.05, release: 0.04, frequency: 520, endFrequency: 260, type: 'square', gain: 0.2 });
+      break;
+    case 'item':
+      scheduleTone(context, { start, duration: 0.05, release: 0.03, frequency: 520, endFrequency: 620, type: 'triangle', gain: 0.35 });
+      scheduleTone(context, { start: start + 0.05, duration: 0.05, release: 0.03, frequency: 660, endFrequency: 760, type: 'triangle', gain: 0.35 });
+      scheduleTone(context, { start: start + 0.1, duration: 0.07, release: 0.05, frequency: 880, endFrequency: 980, type: 'triangle', gain: 0.4 });
+      break;
+    case 'confirm':
+      scheduleTone(context, { start, duration: 0.035, release: 0.03, frequency: 740, endFrequency: 780, type: 'square', gain: 0.28 });
+      scheduleTone(context, { start: start + 0.045, duration: 0.045, release: 0.04, frequency: 980, endFrequency: 1040, type: 'square', gain: 0.22 });
+      break;
+    case 'defeat':
+      scheduleTone(context, { start, duration: 0.18, release: 0.08, frequency: 220, endFrequency: 72, type: 'sawtooth', gain: 0.55 });
+      scheduleTone(context, { start: start + 0.03, duration: 0.14, release: 0.08, frequency: 160, endFrequency: 55, type: 'triangle', gain: 0.35 });
+      break;
+    case 'victory':
+      scheduleTone(context, { start, duration: 0.08, release: 0.06, frequency: 523.25, endFrequency: 523.25, type: 'triangle', gain: 0.28 });
+      scheduleTone(context, { start: start + 0.07, duration: 0.08, release: 0.06, frequency: 659.25, endFrequency: 659.25, type: 'triangle', gain: 0.28 });
+      scheduleTone(context, { start: start + 0.14, duration: 0.1, release: 0.07, frequency: 783.99, endFrequency: 783.99, type: 'triangle', gain: 0.3 });
+      scheduleTone(context, { start: start + 0.24, duration: 0.12, release: 0.08, frequency: 1046.5, endFrequency: 1046.5, type: 'triangle', gain: 0.32 });
+      break;
+    case 'defeat_match':
+      scheduleTone(context, { start, duration: 0.1, release: 0.05, frequency: 220, endFrequency: 190, type: 'triangle', gain: 0.26 });
+      scheduleTone(context, { start: start + 0.11, duration: 0.12, release: 0.06, frequency: 174.61, endFrequency: 146.83, type: 'triangle', gain: 0.28 });
+      scheduleTone(context, { start: start + 0.23, duration: 0.14, release: 0.08, frequency: 130.81, endFrequency: 98, type: 'triangle', gain: 0.3 });
+      break;
+    default:
+      break;
+  }
+}
+
+function getFinishSfxKind(message = '') {
+  const roomPlayerKey = getRoomPlayerKey();
+  if (!roomPlayerKey) return 'victory';
+  const p1Win = message.includes('プレイヤー1の全滅勝ち') || message.includes('プレイヤー1のポイント勝ち');
+  const p2Win = message.includes('プレイヤー2の全滅勝ち') || message.includes('プレイヤー2のポイント勝ち');
+  if ((roomPlayerKey === 'player1' && p1Win) || (roomPlayerKey === 'player2' && p2Win)) return 'victory';
+  if ((roomPlayerKey === 'player1' && p2Win) || (roomPlayerKey === 'player2' && p1Win)) return 'defeat_match';
+  return 'victory';
+}
+
 
 function createEmptyMatchState() {
   return {
@@ -452,7 +646,7 @@ function getUnitAbilityBadges(unit) {
   if (effectType === 'pierce_line_2') push('ability-pierce', '貫', '貫通攻撃: 軽減無視の直線攻撃です');
   if (effectType === 'double_attack') push('ability-speed', '連', '連撃: 1ターンに2回攻撃できます');
   if (effectType === 'move_after_attack_1') push('ability-speed', '迅', '攻撃後移動: 攻撃後に1マス移動できます');
-  if (unitHasShadowReturnEffect(unit)) push('ability-shadow', '影', '影の暗殺者: 攻撃後、自陣の同じ段に戻ります。戻り先が埋まっている場合は戻りません');
+  if (effectType === 'return_and_redeploy_full_heal') push('ability-shadow', '影', '影の暗殺者: 攻撃後に手元へ戻り、次の自身の手番に再配置できます');
   if (effectType === 'revive_next_turn_from_base') push('ability-revive', '復', '復活: 次の自身の手番開始時に自陣から復活します');
   if (['guard_adjacent_ally_once', 'intercept_and_counter_1'].includes(effectType)) push('ability-guard', '護', '護衛効果を持つユニットです');
   if (['self_center_aoe_1_on_attack', 'splash_adjacent_enemy_on_attack'].includes(effectType)) push('ability-aoe', '範', '範囲ダメージ効果を持つユニットです');
@@ -1093,17 +1287,6 @@ function unitHasEffectType(unit, effectType) {
   return getUnitMeta(unit)?.effect_type === effectType;
 }
 
-function unitHasShadowReturnEffect(unit) {
-  const effectType = getUnitMeta(unit)?.effect_type;
-  return effectType === 'return_to_home_row_after_attack' || effectType === 'return_and_redeploy_full_heal';
-}
-
-function getShadowReturnCellIndexForSource(playerKey, sourceIndex) {
-  if (!playerKey || sourceIndex == null || sourceIndex < 0) return -1;
-  const { row } = indexToCoord(sourceIndex);
-  return coordToIndex(row, HOME_COLUMN[playerKey]);
-}
-
 function canNegateDamageOnce(unit) {
   return !!(unitHasEffectType(unit, 'negate_damage_once') && unit.negateDamageUsed !== true);
 }
@@ -1133,7 +1316,7 @@ function getPendingRevivesForPlayer(playerKey) {
 }
 
 function getPendingRedeploysForPlayer(playerKey) {
-  return [];
+  return (matchState.pendingRedeploys || []).filter((entry) => entry.owner === playerKey);
 }
 
 function getPendingRedeployCardId() {
@@ -1191,7 +1374,17 @@ function queueUnitRevive(unit) {
 }
 
 function queueUnitRedeploy(unit) {
-  matchState.pendingRedeploys = [];
+  if (!unit || !unitHasEffectType(unit, 'return_and_redeploy_full_heal')) return;
+  matchState.pendingRedeploys = matchState.pendingRedeploys || [];
+  const exists = matchState.pendingRedeploys.some((entry) => entry.owner === unit.owner && entry.cardId === unit.cardId);
+  if (!exists) {
+    matchState.pendingRedeploys.push({
+      owner: unit.owner,
+      cardId: unit.cardId,
+      name: unit.name,
+    });
+  }
+  addLog(`${unit.name} は効果で手元に戻りました。次の ${PLAYER_LABEL[unit.owner]} の手番開始時に自陣へ再配置できます`);
 }
 
 function clearPendingRedeployForUnit(unit) {
@@ -1223,17 +1416,66 @@ function revivePendingUnitsForPlayer(playerKey) {
 }
 
 function getRedeployableCells(playerKey = matchState.currentPlayer) {
-  return [];
+  const pendingCard = getPendingRedeployCard();
+  const pendingOwner = getPendingRedeployOwner();
+  if (matchState.phase !== 'battle' || !pendingCard || pendingOwner !== playerKey) return [];
+  return getHomeRespawnCells(playerKey).filter((idx) => !matchState.board[idx]);
 }
 
 function preparePendingRedeployForPlayer(playerKey) {
-  clearPendingRedeployPrompt();
-  matchState.pendingRedeploys = [];
+  if (!matchState.turnState) return;
+  matchState.turnState.pendingRedeployCardId = null;
+  matchState.turnState.pendingRedeployOwner = null;
+  const pending = getPendingRedeploysForPlayer(playerKey);
+  if (!pending.length) return;
+  const openCells = getHomeRespawnCells(playerKey).filter((idx) => !matchState.board[idx]);
+  if (!openCells.length) {
+    addLog(`${PLAYER_LABEL[playerKey]} の再配置待機ユニットがありますが、自陣に空きがないため今回は再配置できません`);
+    return;
+  }
+  const entry = pending[0];
+  matchState.turnState.pendingRedeployCardId = entry.cardId;
+  matchState.turnState.pendingRedeployOwner = entry.owner;
+  matchState.turnState.itemWindowOpen = false;
+  addLog(`${PLAYER_LABEL[playerKey]} は ${entry.name} を自陣の空きマスへ再配置できます`);
 }
 
 function placePendingRedeploy(targetIndex) {
-  clearPendingRedeployPrompt();
-  matchState.pendingRedeploys = [];
+  const cardId = getPendingRedeployCardId();
+  const pendingOwner = getPendingRedeployOwner();
+  if (!cardId || !pendingOwner) return;
+  const playerKey = matchState.currentPlayer;
+  if (pendingOwner !== playerKey) {
+    matchState.turnState.pendingRedeployCardId = null;
+    matchState.turnState.pendingRedeployOwner = null;
+    renderMatchArea();
+    return;
+  }
+  const validTargets = getRedeployableCells(playerKey);
+  if (!validTargets.includes(targetIndex)) return;
+
+  const pendingIndex = (matchState.pendingRedeploys || []).findIndex((entry) => entry.owner === playerKey && entry.cardId === cardId);
+  if (pendingIndex < 0) {
+    matchState.turnState.pendingRedeployCardId = null;
+    matchState.turnState.pendingRedeployOwner = null;
+    renderMatchArea();
+    return;
+  }
+  matchState.pendingRedeploys.splice(pendingIndex, 1);
+
+  const unit = createUnitInstance(cardId, playerKey);
+  unit.currentHp = unit.maxHp;
+  matchState.board[targetIndex] = unit;
+  matchState.turnState.pendingRedeployCardId = null;
+  matchState.turnState.pendingRedeployOwner = null;
+  addLog(`${PLAYER_LABEL[playerKey]} の ${unit.name} を ${formatCellLabel(targetIndex)} に再配置しました（HP全回復）`);
+
+  if (getPendingRedeploysForPlayer(playerKey).length > 0) {
+    preparePendingRedeployForPlayer(playerKey);
+  } else {
+    matchState.turnState.itemWindowOpen = true;
+  }
+
   renderMatchArea();
 }
 
@@ -1557,6 +1799,7 @@ function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
     if (creditPlayerKey) {
       getPlayerState(creditPlayerKey).defeated += 1;
     }
+    playSfx('defeat');
     addLog(`${defender.name} が撃破されました`);
     queueUnitRevive(defender);
     return { defeated: true, damage: actualDamage };
@@ -1652,6 +1895,7 @@ function applyItemEffect(card, playerKey) {
       matchState.board[targetIndex] = null;
       clearPendingRedeployForUnit(destroyedUnit);
       getPlayerState(playerKey).defeated += 1;
+      playSfx('defeat');
       addLog(`${actorLabel}: ${card.card_name} で ${destroyedUnit.name} を即座に破壊しました`);
       queueUnitRevive(destroyedUnit);
       return true;
@@ -1915,6 +2159,7 @@ function performItemUseLocal(selectedCardId, targetIndex = null, playerKey = mat
   itemState.used = true;
   matchState.turnState.itemUsed = true;
   closeItemWindow();
+  playSfx('item');
   renderMatchArea();
   if (checkWinByElimination()) return true;
   return true;
@@ -2515,7 +2760,6 @@ function beginTurn(playerKey) {
   clearRoomPendingRequests();
   clearExpiredStartOfTurnEffects(playerKey);
   matchState.turnState = { moved: false, movedUnitId: null, attacked: false, attackCount: 0, attackUnitId: null, itemWindowOpen: true, itemUsed: false, selectedItemCardId: null, selectedItemTargetIndex: null, pendingAction: null, acceleratedUnitId: null, acceleratedMovesRemaining: 0, postAttackMoveUnitId: null, pendingRedeployCardId: null, pendingRedeployOwner: null };
-  matchState.pendingRedeploys = [];
   revivePendingUnitsForPlayer(playerKey);
   refreshTurnStatusForPlayer(playerKey);
   preparePendingRedeployForPlayer(playerKey);
@@ -2528,6 +2772,10 @@ function finishMatch(message) {
   matchState.phase = 'finished';
   matchState.active = true;
   matchState.winner = message;
+  if (lastFinishedSfxMessage !== message) {
+    playSfx(getFinishSfxKind(message));
+    lastFinishedSfxMessage = message;
+  }
   addLog(message);
   renderMatchArea();
 }
@@ -2567,6 +2815,7 @@ function finishByPoints() {
 function finishItemPhaseLocal() {
   if (matchState.phase !== 'battle' || !isItemWindowOpen()) return false;
   closeItemWindow();
+  playSfx('confirm');
   addLog(`${PLAYER_LABEL[matchState.currentPlayer]} はアイテム使用を終了しました`);
   renderMatchArea();
   return true;
@@ -2585,6 +2834,7 @@ function finishItemPhase() {
 
 function endTurnLocal() {
   if (matchState.phase !== 'battle') return false;
+  playSfx('confirm');
   clearPostAttackMoveOpportunity();
   const nextPlayer = getOpponent(matchState.currentPlayer);
   const previousPlayer = matchState.currentPlayer;
@@ -2816,6 +3066,7 @@ function attackWithSelectedUnit(targetIndex) {
 function applyPendingAttack(pendingAction) {
   const sourceIndex = findUnitIndexById(pendingAction.unitId);
   if (sourceIndex < 0) return;
+  playSfx('attack');
   const attacker = matchState.board[sourceIndex];
   const defender = matchState.board[pendingAction.targetIndex];
   if (!attacker || !defender || defender.owner === attacker.owner) return;
@@ -2917,18 +3168,15 @@ function applyPendingAttack(pendingAction) {
     return idx >= 0 ? matchState.board[idx] : null;
   })();
 
-  if (attackerAfterAllEffects && unitHasShadowReturnEffect(attackerAfterAllEffects)) {
-    const currentIndex = findUnitIndexByIdOwned(attackerAfterAllEffects.instanceId, attackerAfterAllEffects.owner);
-    const returnIndex = getShadowReturnCellIndexForSource(attackerAfterAllEffects.owner, pendingAction.sourceIndex);
-    if (currentIndex >= 0 && returnIndex >= 0 && currentIndex !== returnIndex) {
-      if (!matchState.board[returnIndex]) {
-        matchState.board[returnIndex] = matchState.board[currentIndex];
-        matchState.board[currentIndex] = null;
-        attackerAfterAllEffects = matchState.board[returnIndex];
-        addLog(`${attackerAfterAllEffects.name} は影に紛れ、${formatCellLabel(returnIndex)} に戻りました`);
-      } else {
-        addLog(`${attackerAfterAllEffects.name} は戻り先の ${formatCellLabel(returnIndex)} が埋まっているため戻れませんでした`);
-      }
+  if (attackerAfterAllEffects && unitHasEffectType(attackerAfterAllEffects, 'return_and_redeploy_full_heal')) {
+    const expectedOwner = String(pendingAction.actorPlayer || attackerAfterAllEffects.owner || '');
+    const currentIndex = findUnitIndexByIdOwned(attackerAfterAllEffects.instanceId, expectedOwner);
+    const currentUnit = currentIndex >= 0 ? matchState.board[currentIndex] : null;
+    if (currentUnit && (!expectedOwner || currentUnit.owner === expectedOwner)) {
+      queueUnitRedeploy(currentUnit);
+      matchState.board[currentIndex] = null;
+      matchState.selectedUnitId = null;
+      attackerAfterAllEffects = null;
     }
   }
 
@@ -3150,6 +3398,7 @@ function startMatchFromDeckData(p1DeckInput, p2DeckInput, sourceLabel = 'テス�
   }
 
   matchState = createEmptyMatchState();
+  lastFinishedSfxMessage = '';
   matchState.active = true;
   matchState.phase = 'setup';
   matchState.currentPlayer = 'player1';
@@ -3196,6 +3445,7 @@ function startTestMatch() {
 
 function resetTestMatch() {
   matchState = createEmptyMatchState();
+  lastFinishedSfxMessage = '';
   renderMatchArea();
 }
 
@@ -3478,7 +3728,7 @@ function exportRoomSyncSnapshot() {
       },
     },
     pendingRevives: Array.isArray(matchState.pendingRevives) ? [...matchState.pendingRevives] : [],
-    pendingRedeploys: [],
+    pendingRedeploys: Array.isArray(matchState.pendingRedeploys) ? [...matchState.pendingRedeploys] : [],
   };
 }
 
@@ -3510,4 +3760,5 @@ window.REDVEIN_ROOM_API = {
   applyRoomStateSync,
 };
 
+setupSfx();
 loadCards();
