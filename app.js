@@ -159,6 +159,11 @@ let itemShowcaseMeta = null;
 let itemShowcaseEffect = null;
 let itemShowcaseHideTimer = null;
 
+let itemEffectRoot = null;
+let itemEffectTitle = null;
+let itemEffectSub = null;
+let itemEffectLabel = null;
+
 let combatFxBoardSnapshot = null;
 let combatFxTurnSnapshot = null;
 let combatFxTimers = new Set();
@@ -838,6 +843,322 @@ function showItemShowcase(card) {
   hideItemShowcase(false);
 }
 
+
+
+function injectItemEffectStyles() {
+  if (document.getElementById('redveinItemEffectStyle')) return;
+  const style = document.createElement('style');
+  style.id = 'redveinItemEffectStyle';
+  style.textContent = `
+    #redveinItemEffectOverlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9997;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      --rv-item-fx-accent: rgba(255, 164, 87, 0.75);
+      --rv-item-fx-accent-soft: rgba(255, 164, 87, 0.22);
+      --rv-item-fx-glow: rgba(255, 164, 87, 0.42);
+    }
+    #redveinItemEffectOverlay.rv-item-effect-visible {
+      opacity: 1;
+    }
+    #redveinItemEffectOverlay .rv-item-effect-wash {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 50% 44%, var(--rv-item-fx-glow), transparent 54%),
+        linear-gradient(180deg, rgba(7, 4, 8, 0.02), rgba(7, 4, 8, 0.18));
+      animation: rvItemEffectWash 0.85s ease forwards;
+    }
+    #redveinItemEffectOverlay .rv-item-effect-ring {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: min(44vw, 440px);
+      aspect-ratio: 1;
+      border-radius: 999px;
+      border: 2px solid var(--rv-item-fx-accent);
+      box-shadow: 0 0 40px var(--rv-item-fx-glow), inset 0 0 30px var(--rv-item-fx-accent-soft);
+      transform: translate(-50%, -50%) scale(0.62);
+      animation: rvItemEffectRing 0.95s cubic-bezier(.18,.8,.2,1) forwards;
+    }
+    #redveinItemEffectOverlay .rv-item-effect-copy {
+      position: absolute;
+      left: 50%;
+      top: min(24vh, 176px);
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 6px;
+      filter: drop-shadow(0 8px 18px rgba(0,0,0,0.34));
+      animation: rvItemEffectCopy 0.95s ease forwards;
+    }
+    #redveinItemEffectOverlay .rv-item-effect-label {
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--rv-item-fx-accent) 76%, white 24%);
+      background: color-mix(in srgb, var(--rv-item-fx-accent-soft) 88%, transparent 12%);
+      color: white;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.16em;
+    }
+    #redveinItemEffectOverlay .rv-item-effect-title {
+      color: #fff6f8;
+      font-size: clamp(26px, 4vw, 42px);
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-shadow: 0 0 18px rgba(0,0,0,0.38);
+    }
+    #redveinItemEffectOverlay .rv-item-effect-sub {
+      color: rgba(255, 244, 247, 0.92);
+      font-size: clamp(12px, 1.6vw, 16px);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    .board-cell.rv-itemfx-fire::after,
+    .board-cell.rv-itemfx-heal::after,
+    .board-cell.rv-itemfx-shield::after,
+    .board-cell.rv-itemfx-smoke::after,
+    .board-cell.rv-itemfx-haste::after,
+    .board-cell.rv-itemfx-burst::after,
+    .board-cell.rv-itemfx-freeze::after,
+    .board-cell.rv-itemfx-power::after,
+    .board-cell.rv-itemfx-break::after,
+    .board-cell.rv-itemfx-bless::after {
+      content: '';
+      position: absolute;
+      inset: 6px;
+      border-radius: 16px;
+      pointer-events: none;
+      animation: rvItemCellPulse 0.92s ease forwards;
+      z-index: 4;
+    }
+    .board-cell.rv-itemfx-fire::after {
+      background: radial-gradient(circle, rgba(255, 184, 64, 0.26), rgba(255, 84, 32, 0.54));
+      box-shadow: 0 0 22px rgba(255, 108, 46, 0.62), inset 0 0 14px rgba(255, 224, 160, 0.2);
+    }
+    .board-cell.rv-itemfx-heal::after {
+      background: radial-gradient(circle, rgba(120, 255, 182, 0.18), rgba(45, 214, 133, 0.46));
+      box-shadow: 0 0 20px rgba(78, 226, 149, 0.55), inset 0 0 12px rgba(206, 255, 232, 0.22);
+    }
+    .board-cell.rv-itemfx-shield::after {
+      background: radial-gradient(circle, rgba(125, 198, 255, 0.18), rgba(60, 132, 255, 0.46));
+      box-shadow: 0 0 20px rgba(100, 162, 255, 0.56), inset 0 0 12px rgba(208, 229, 255, 0.26);
+    }
+    .board-cell.rv-itemfx-smoke::after {
+      background: radial-gradient(circle, rgba(195, 195, 195, 0.14), rgba(80, 80, 92, 0.46));
+      box-shadow: 0 0 20px rgba(145, 145, 160, 0.34), inset 0 0 12px rgba(246, 246, 255, 0.08);
+    }
+    .board-cell.rv-itemfx-haste::after {
+      background: radial-gradient(circle, rgba(255, 232, 98, 0.15), rgba(255, 192, 41, 0.46));
+      box-shadow: 0 0 20px rgba(255, 211, 82, 0.5), inset 0 0 12px rgba(255, 244, 188, 0.18);
+    }
+    .board-cell.rv-itemfx-burst::after {
+      background: radial-gradient(circle, rgba(255, 212, 85, 0.18), rgba(255, 83, 34, 0.56));
+      box-shadow: 0 0 28px rgba(255, 98, 48, 0.66), inset 0 0 14px rgba(255, 236, 190, 0.18);
+    }
+    .board-cell.rv-itemfx-freeze::after {
+      background: radial-gradient(circle, rgba(164, 240, 255, 0.16), rgba(77, 155, 255, 0.48));
+      box-shadow: 0 0 22px rgba(102, 188, 255, 0.6), inset 0 0 12px rgba(220, 246, 255, 0.22);
+    }
+    .board-cell.rv-itemfx-power::after {
+      background: radial-gradient(circle, rgba(255, 184, 235, 0.15), rgba(240, 82, 171, 0.48));
+      box-shadow: 0 0 22px rgba(247, 110, 196, 0.6), inset 0 0 12px rgba(255, 219, 244, 0.18);
+    }
+    .board-cell.rv-itemfx-break::after {
+      background: radial-gradient(circle, rgba(255, 230, 194, 0.14), rgba(255, 133, 89, 0.48));
+      box-shadow: 0 0 22px rgba(255, 130, 80, 0.62), inset 0 0 12px rgba(255, 238, 214, 0.2);
+    }
+    .board-cell.rv-itemfx-bless::after {
+      background: radial-gradient(circle, rgba(255, 255, 220, 0.16), rgba(255, 238, 158, 0.44));
+      box-shadow: 0 0 24px rgba(255, 237, 140, 0.58), inset 0 0 14px rgba(255, 252, 214, 0.18);
+    }
+    .board-cell .rv-itemfx-word {
+      position: absolute;
+      left: 50%;
+      top: 15%;
+      transform: translate(-50%, -50%);
+      z-index: 6;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.22);
+      background: rgba(20, 10, 14, 0.78);
+      color: #fff6f8;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      white-space: nowrap;
+      pointer-events: none;
+      text-shadow: 0 1px 6px rgba(0,0,0,0.3);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.24);
+      animation: rvItemFxWord 0.95s ease forwards;
+    }
+    .board-cell .rv-itemfx-word.rv-tone-heal { background: rgba(18, 72, 48, 0.84); }
+    .board-cell .rv-itemfx-word.rv-tone-fire { background: rgba(94, 36, 18, 0.84); }
+    .board-cell .rv-itemfx-word.rv-tone-shield { background: rgba(20, 48, 92, 0.84); }
+    .board-cell .rv-itemfx-word.rv-tone-smoke { background: rgba(48, 48, 58, 0.84); }
+    .board-cell .rv-itemfx-word.rv-tone-haste { background: rgba(92, 74, 18, 0.84); }
+    .board-cell .rv-itemfx-word.rv-tone-break { background: rgba(96, 42, 26, 0.84); }
+    .board-cell .rv-itemfx-word.rv-tone-freeze { background: rgba(22, 62, 96, 0.84); }
+    .board-cell .rv-itemfx-word.rv-tone-power { background: rgba(92, 28, 74, 0.84); }
+    @keyframes rvItemEffectWash {
+      0% { opacity: 0; }
+      18% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+    @keyframes rvItemEffectRing {
+      0% { opacity: 0; transform: translate(-50%, -50%) scale(0.62); }
+      18% { opacity: 1; }
+      100% { opacity: 0; transform: translate(-50%, -50%) scale(1.28); }
+    }
+    @keyframes rvItemEffectCopy {
+      0% { opacity: 0; transform: translate(-50%, -10px) scale(0.96); }
+      18% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -26px) scale(1.01); }
+    }
+    @keyframes rvItemCellPulse {
+      0% { opacity: 0; transform: scale(0.88); }
+      20% { opacity: 1; transform: scale(1); }
+      100% { opacity: 0; transform: scale(1.08); }
+    }
+    @keyframes rvItemFxWord {
+      0% { opacity: 0; transform: translate(-50%, -44%) scale(0.84); }
+      18% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -92%) scale(1.02); }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function ensureItemEffectOverlay() {
+  if (itemEffectRoot && document.body.contains(itemEffectRoot)) return itemEffectRoot;
+  injectItemEffectStyles();
+  if (!document.body) return null;
+  itemEffectRoot = document.createElement('div');
+  itemEffectRoot.id = 'redveinItemEffectOverlay';
+  itemEffectRoot.innerHTML = `
+    <div class="rv-item-effect-wash"></div>
+    <div class="rv-item-effect-ring"></div>
+    <div class="rv-item-effect-copy">
+      <div class="rv-item-effect-label"></div>
+      <div class="rv-item-effect-title"></div>
+      <div class="rv-item-effect-sub"></div>
+    </div>
+  `;
+  document.body.appendChild(itemEffectRoot);
+  itemEffectLabel = itemEffectRoot.querySelector('.rv-item-effect-label');
+  itemEffectTitle = itemEffectRoot.querySelector('.rv-item-effect-title');
+  itemEffectSub = itemEffectRoot.querySelector('.rv-item-effect-sub');
+  return itemEffectRoot;
+}
+
+function uniqueBoardIndices(indices = []) {
+  const seen = new Set();
+  const result = [];
+  indices.forEach((value) => {
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < 0 || seen.has(num)) return;
+    seen.add(num);
+    result.push(num);
+  });
+  return result;
+}
+
+function spawnItemCellWord(index, text, tone = '', delay = 0) {
+  const run = () => {
+    const cell = getBoardCellElement(index);
+    if (!cell || !text) return;
+    const word = document.createElement('div');
+    word.className = `rv-itemfx-word ${tone ? `rv-tone-${tone}` : ''}`.trim();
+    word.textContent = text;
+    cell.appendChild(word);
+    rememberCombatFxTimer(setTimeout(() => word.remove(), 980));
+  };
+  if (delay > 0) {
+    rememberCombatFxTimer(setTimeout(run, delay));
+  } else {
+    run();
+  }
+}
+
+function buildItemEffectVisual(card, fx = {}) {
+  const effectType = String(card?.effect_type || '');
+  const name = String(card?.card_name || '');
+  const targets = uniqueBoardIndices(fx.targets || []);
+  const center = Number.isInteger(fx.centerIndex) ? fx.centerIndex : (targets[0] ?? null);
+  const common = { targets, center, overlayMs: 920, pulseMs: 940, staggerMs: 70 };
+  if (name.includes('火炎') || effectType === 'damage_single_2') {
+    return { ...common, accent: 'rgba(255, 116, 62, 0.82)', soft: 'rgba(255, 116, 62, 0.22)', glow: 'rgba(255, 140, 74, 0.38)', label: 'ITEM EFFECT', title: 'BURN', subtitle: '炎の衝撃が走る', cellClass: 'rv-itemfx-fire', cellWord: 'BURN', cellTone: 'fire' };
+  }
+  if (name.includes('投石') || effectType === 'damage_single_1') {
+    return { ...common, accent: 'rgba(255, 184, 108, 0.8)', soft: 'rgba(255, 184, 108, 0.2)', glow: 'rgba(255, 190, 120, 0.32)', label: 'ITEM EFFECT', title: 'HIT', subtitle: '投射攻撃が命中', cellClass: 'rv-itemfx-break', cellWord: 'HIT', cellTone: 'break' };
+  }
+  if (effectType === 'damage_aoe_target_radius_1') {
+    return { ...common, accent: 'rgba(255, 102, 68, 0.82)', soft: 'rgba(255, 102, 68, 0.24)', glow: 'rgba(255, 132, 82, 0.42)', label: 'ITEM EFFECT', title: 'BLAST', subtitle: '爆裂が周囲に広がる', cellClass: 'rv-itemfx-burst', cellWord: 'BLAST', cellTone: 'fire' };
+  }
+  if (effectType === 'destroy_single') {
+    return { ...common, accent: 'rgba(255, 154, 98, 0.82)', soft: 'rgba(255, 154, 98, 0.2)', glow: 'rgba(255, 170, 112, 0.38)', label: 'ITEM EFFECT', title: 'BREAK', subtitle: '破壊の力が発動', cellClass: 'rv-itemfx-break', cellWord: 'BREAK', cellTone: 'break' };
+  }
+  if (effectType === 'heal_single_2' || effectType === 'full_heal_single') {
+    return { ...common, accent: 'rgba(84, 226, 148, 0.82)', soft: 'rgba(84, 226, 148, 0.2)', glow: 'rgba(116, 255, 186, 0.36)', label: 'ITEM EFFECT', title: 'HEAL', subtitle: '生命力が戻る', cellClass: 'rv-itemfx-heal', cellWord: 'HEAL', cellTone: 'heal' };
+  }
+  if (name.includes('天使') || effectType === 'heal_all_1') {
+    return { ...common, accent: 'rgba(255, 240, 150, 0.86)', soft: 'rgba(255, 240, 150, 0.24)', glow: 'rgba(255, 240, 156, 0.38)', label: 'ITEM EFFECT', title: 'BLESS', subtitle: '祝福の光が降り注ぐ', cellClass: 'rv-itemfx-bless', cellWord: 'BLESS', cellTone: 'heal', overlayMs: 980, pulseMs: 1020, staggerMs: 85 };
+  }
+  if (name.includes('煙幕') || effectType === 'disable_attack_next_round') {
+    return { ...common, accent: 'rgba(170, 170, 184, 0.8)', soft: 'rgba(170, 170, 184, 0.18)', glow: 'rgba(170, 170, 184, 0.32)', label: 'ITEM EFFECT', title: 'SMOKE', subtitle: '視界を奪う煙が立ち込める', cellClass: 'rv-itemfx-smoke', cellWord: 'SMOKE', cellTone: 'smoke' };
+  }
+  if (effectType === 'stun_single_1_turn') {
+    return { ...common, accent: 'rgba(120, 200, 255, 0.82)', soft: 'rgba(120, 200, 255, 0.2)', glow: 'rgba(126, 214, 255, 0.36)', label: 'ITEM EFFECT', title: 'FREEZE', subtitle: '時が凍りつく', cellClass: 'rv-itemfx-freeze', cellWord: 'FREEZE', cellTone: 'freeze' };
+  }
+  if (effectType === 'buff_move_atk_turn_1') {
+    return { ...common, accent: 'rgba(244, 110, 190, 0.82)', soft: 'rgba(244, 110, 190, 0.2)', glow: 'rgba(248, 132, 204, 0.36)', label: 'ITEM EFFECT', title: 'BOOST', subtitle: '力がみなぎる', cellClass: 'rv-itemfx-power', cellWord: 'BOOST', cellTone: 'power' };
+  }
+  if (effectType === 'shield_single_2_once' || effectType === 'team_damage_minus_1_until_next_round') {
+    return { ...common, accent: 'rgba(104, 166, 255, 0.82)', soft: 'rgba(104, 166, 255, 0.2)', glow: 'rgba(116, 182, 255, 0.36)', label: 'ITEM EFFECT', title: 'GUARD', subtitle: '防壁が展開される', cellClass: 'rv-itemfx-shield', cellWord: 'GUARD', cellTone: 'shield' };
+  }
+  if (effectType === 'move_twice_single') {
+    return { ...common, accent: 'rgba(255, 214, 92, 0.84)', soft: 'rgba(255, 214, 92, 0.2)', glow: 'rgba(255, 222, 108, 0.34)', label: 'ITEM EFFECT', title: 'HASTE', subtitle: '加速の力が宿る', cellClass: 'rv-itemfx-haste', cellWord: 'HASTE', cellTone: 'haste' };
+  }
+  return { ...common, accent: 'rgba(220, 145, 255, 0.8)', soft: 'rgba(220, 145, 255, 0.18)', glow: 'rgba(220, 145, 255, 0.32)', label: 'ITEM EFFECT', title: name || 'MAGIC', subtitle: 'アイテム効果が発動', cellClass: 'rv-itemfx-power', cellWord: 'ITEM', cellTone: 'power' };
+}
+
+function playItemEffectSequence(card, fx = {}) {
+  if (!card || card.type !== 'item') return;
+  const root = ensureItemEffectOverlay();
+  if (!root) return;
+  const visual = buildItemEffectVisual(card, fx);
+  root.style.setProperty('--rv-item-fx-accent', visual.accent);
+  root.style.setProperty('--rv-item-fx-accent-soft', visual.soft);
+  root.style.setProperty('--rv-item-fx-glow', visual.glow);
+  if (itemEffectLabel) itemEffectLabel.textContent = visual.label || 'ITEM EFFECT';
+  if (itemEffectTitle) itemEffectTitle.textContent = visual.title || (card.card_name || 'ITEM');
+  if (itemEffectSub) itemEffectSub.textContent = visual.subtitle || 'アイテム効果が発動';
+  root.classList.remove('rv-item-effect-visible');
+  void root.offsetWidth;
+  root.classList.add('rv-item-effect-visible');
+  rememberCombatFxTimer(setTimeout(() => root.classList.remove('rv-item-effect-visible'), visual.overlayMs || 920));
+  const targets = uniqueBoardIndices(visual.targets || fx.targets || []);
+  if (Number.isInteger(visual.center) && !targets.includes(visual.center)) targets.unshift(visual.center);
+  const staggerMs = Number(visual.staggerMs || 0);
+  const baseDelay = 90;
+  rememberCombatFxTimer(setTimeout(() => {
+    targets.forEach((index, order) => {
+      const delay = order * staggerMs;
+      if (delay > 0) {
+        rememberCombatFxTimer(setTimeout(() => pulseCellClass(index, visual.cellClass, visual.pulseMs || 940), delay));
+      } else {
+        pulseCellClass(index, visual.cellClass, visual.pulseMs || 940);
+      }
+      spawnItemCellWord(index, visual.cellWord, visual.cellTone, delay);
+    });
+  }, baseDelay));
+}
 
 function clearCombatFxTimers() {
   combatFxTimers.forEach((timer) => clearTimeout(timer));
@@ -3244,42 +3565,48 @@ function applyItemEffect(card, playerKey) {
   const targetUnit = getSelectedItemTargetUnit();
   const actorLabel = PLAYER_LABEL[playerKey];
   const effectBoost = getItemEffectBoost(playerKey, card.effect_type);
+  const success = (fx = {}) => ({ ok: true, fx });
   switch (card.effect_type) {
     case 'heal_single_2': {
       if (!targetUnit) return false;
       const before = targetUnit.currentHp;
       const amount = 2 + effectBoost;
       targetUnit.currentHp = Math.min(targetUnit.maxHp, targetUnit.currentHp + amount);
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} を ${targetUnit.currentHp - before} 回復しました${effectBoost > 0 ? '（補給路で +1 強化）' : ''}`);
-      return true;
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount });
     }
     case 'full_heal_single': {
       if (!targetUnit) return false;
       const before = targetUnit.currentHp;
       targetUnit.currentHp = targetUnit.maxHp;
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} の HP を全回復しました（+${targetUnit.currentHp - before}）`);
-      return true;
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount: targetUnit.currentHp - before });
     }
     case 'heal_all_1': {
       const allies = getLivingUnits(playerKey);
       let healed = 0;
+      const targets = [];
       allies.forEach((unit) => {
         const before = unit.currentHp;
         unit.currentHp = Math.min(unit.maxHp, unit.currentHp + 1 + effectBoost);
         healed += unit.currentHp - before;
+        const idx = findUnitIndexByIdOwned(unit.instanceId, unit.owner);
+        if (idx >= 0) targets.push(idx);
       });
       addLog(`${actorLabel}: ${card.card_name} で味方全体を回復しました（合計 +${healed}）${effectBoost > 0 ? '（補給路で +1 強化）' : ''}`);
-      return true;
+      return success({ targets, amount: healed });
     }
     case 'damage_single_1': {
       if (targetIndex == null) return false;
-      applyDamageToIndex(targetIndex, 1 + effectBoost, `${actorLabel}: ${card.card_name} で`);
-      return true;
+      const result = applyDamageToIndex(targetIndex, 1 + effectBoost, `${actorLabel}: ${card.card_name} で`);
+      return success({ targets: [targetIndex], amount: Number(result.damage || 0), defeated: !!result.defeated });
     }
     case 'damage_single_2': {
       if (targetIndex == null) return false;
-      applyDamageToIndex(targetIndex, 2 + effectBoost, `${actorLabel}: ${card.card_name} で`);
-      return true;
+      const result = applyDamageToIndex(targetIndex, 2 + effectBoost, `${actorLabel}: ${card.card_name} で`);
+      return success({ targets: [targetIndex], amount: Number(result.damage || 0), defeated: !!result.defeated });
     }
     case 'destroy_single': {
       if (targetIndex == null) return false;
@@ -3291,34 +3618,38 @@ function applyItemEffect(card, playerKey) {
       playSfx('defeat');
       addLog(`${actorLabel}: ${card.card_name} で ${destroyedUnit.name} を即座に破壊しました`);
       queueUnitRevive(destroyedUnit);
-      return true;
+      return success({ targets: [targetIndex], defeated: true });
     }
     case 'disable_attack_next_round': {
       if (!targetUnit) return false;
       targetUnit.skipAttackTurns = Math.max(targetUnit.skipAttackTurns || 0, 1);
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次の自身の手番で攻撃不可になります`);
-      return true;
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [] });
     }
     case 'stun_single_1_turn': {
       if (!targetUnit) return false;
       targetUnit.skipActionTurns = Math.max(Number(targetUnit.skipActionTurns || 0), 1);
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次の自身の手番で行動できなくなります`);
-      return true;
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [] });
     }
     case 'buff_move_atk_turn_1': {
       if (!targetUnit) return false;
       const amount = 1 + effectBoost;
       targetUnit.tempAtkBuff = (targetUnit.tempAtkBuff || 0) + amount;
       targetUnit.tempMoveBuff = (targetUnit.tempMoveBuff || 0) + amount;
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} の ATK/MOVE をこの手番だけ +${amount} しました`);
-      return true;
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount });
     }
     case 'shield_single_2_once': {
       if (!targetUnit) return false;
       const amount = 2 + effectBoost;
       targetUnit.singleUseDamageReduction = Math.max(Number(targetUnit.singleUseDamageReduction || 0), amount);
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次に受けるダメージを ${amount} 軽減します`);
-      return true;
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount });
     }
     case 'move_twice_single': {
       if (!targetUnit || targetUnit.owner !== playerKey) return false;
@@ -3326,16 +3657,20 @@ function applyItemEffect(card, playerKey) {
       const amount = 2 + effectBoost;
       matchState.turnState.acceleratedMovesRemaining = amount;
       matchState.selectedUnitId = targetUnit.instanceId;
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} はこの手番に ${amount} 回移動できます`);
-      return true;
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount });
     }
     case 'team_damage_minus_1_until_next_round': {
       const player = getPlayerState(playerKey);
       const amount = 1 + effectBoost;
       player.teamDamageReduction = Math.max(Number(player.teamDamageReduction || 0), amount);
       player.teamDamageReductionExpiresOnOwnTurnStart = true;
+      const targets = getLivingUnits(playerKey)
+        .map((unit) => findUnitIndexByIdOwned(unit.instanceId, unit.owner))
+        .filter((idx) => idx >= 0);
       addLog(`${actorLabel}: ${card.card_name} で味方全体が次の自分のラウンド開始時までダメージ -${amount} になりました`);
-      return true;
+      return success({ targets, amount });
     }
     case 'damage_aoe_target_radius_1': {
       if (targetIndex == null) return false;
@@ -3346,11 +3681,11 @@ function applyItemEffect(card, playerKey) {
       affected.forEach((idx) => {
         applyDamageToIndex(idx, 1 + effectBoost, `${actorLabel}: ${card.card_name} で`);
       });
-      return true;
+      return success({ targets: affected, centerIndex: targetIndex, amount: 1 + effectBoost });
     }
     default:
       addLog(`${actorLabel}: アイテム「${card.card_name}」を使用しました（この効果はまだ手動処理です）`);
-      return true;
+      return success({ targets: targetIndex == null ? [] : [targetIndex] });
   }
 }
 
@@ -3555,6 +3890,7 @@ function performItemUseLocal(selectedCardId, targetIndex = null, playerKey = mat
   closeItemWindow();
   playSfx('item');
   renderMatchArea();
+  playItemEffectSequence(card, applied.fx || {});
   if (checkWinByElimination()) return true;
   return true;
 }
