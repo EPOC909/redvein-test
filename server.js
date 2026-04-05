@@ -13,15 +13,119 @@ const UNLOCK_TOKEN_SECRET = process.env.REDVEIN_UNLOCK_SECRET || 'redvein-unlock
 const SPECIAL_CARDS = [
   {
     card_id: 'SP-001',
+    card_name: '禁書・魂断の頁',
+    type: 'item',
+    rarity: 'SP',
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: '敵1体を破壊する。この効果で破壊されたユニットは復活できない。',
+    effect_type: 'destroy_single_no_revive',
+    image_file: 'SP-001.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-002',
     card_name: '血月の杯',
     type: 'item',
     rarity: 'SP',
     hp: null,
     atk: null,
     move: null,
-    effect_text: '味方1体のHPを全回復する',
-    effect_type: 'full_heal_single',
-    image_file: 'SP-001.png',
+    effect_text: '味方1体のHPを3回復し、このターンATKを+1する。',
+    effect_type: 'heal_single_3_atk_up_turn_1',
+    image_file: 'SP-002.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-003',
+    card_name: '王冠の勅命',
+    type: 'item',
+    rarity: 'SP',
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: '味方1体はこの手番、追加で1回移動できる。',
+    effect_type: 'royal_command_single',
+    image_file: 'SP-003.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-004',
+    card_name: '不滅の黒騎兵',
+    type: 'battle',
+    rarity: 'SP',
+    hp: 5,
+    atk: 2,
+    move: 2,
+    effect_text: '倒されるダメージを受けた時、1度だけHP1で耐える。',
+    effect_type: 'survive_once_at_1',
+    image_file: 'SP-004.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-005',
+    card_name: '断罪の聖騎士',
+    type: 'battle',
+    rarity: 'SP',
+    hp: 5,
+    atk: 2,
+    move: 1,
+    effect_text: '自分より攻撃力の高い敵から受ける戦闘ダメージを-1する。',
+    effect_type: 'reduce_damage_from_stronger_enemy_1',
+    image_file: 'SP-005.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-006',
+    card_name: '紅蓮の魔装兵',
+    type: 'battle',
+    rarity: 'SP',
+    hp: 4,
+    atk: 3,
+    move: 1,
+    effect_text: '攻撃時、対象に隣接する敵1体にも1ダメージを与える。',
+    effect_type: 'splash_adjacent_enemy_1_on_attack',
+    image_file: 'SP-006.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-007',
+    card_name: '月影の処刑人',
+    type: 'battle',
+    rarity: 'SP',
+    hp: 2,
+    atk: 4,
+    move: 2,
+    effect_text: '攻撃後、1マス移動できる。',
+    effect_type: 'move_after_attack_1',
+    image_file: 'SP-007.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-008',
+    card_name: '血月',
+    type: 'field',
+    rarity: 'SP',
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: '味方は中央9マスで戦う間、ATK+2。',
+    effect_type: 'field_center_ally_atk_plus_2',
+    image_file: 'SP-008.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-009',
+    card_name: '王の玉座',
+    type: 'field',
+    rarity: 'SP',
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: '中央9マスにいる味方は受けるダメージ-1、ATK+1。',
+    effect_type: 'field_center_ally_guard_1_atk_plus_1',
+    image_file: 'SP-009.png',
     unlock_only: true,
   },
   {
@@ -32,26 +136,24 @@ const SPECIAL_CARDS = [
     hp: 6,
     atk: 3,
     move: 2,
-    effect_text: '攻撃するたび自身のHPを1回復する',
-    effect_type: 'gain_hp_1_on_attack_permanent',
+    effect_text: '敵を破壊するたび、自身のHPを1回復する。HPが満タンならATK+1。',
+    effect_type: 'on_kill_heal_1_else_atk_plus_1',
     image_file: 'SP-010.png',
     unlock_only: true,
   },
 ];
 
 const UNLOCK_CODE_DEFS = [
-  {
-    code: 'BLOOD-MOON-001',
-    normalizedCode: 'BLOODMOON001',
-    label: '血月の杯',
-    cardIds: ['SP-001'],
-  },
-  {
-    code: 'VEIN-TRUE-010',
-    normalizedCode: 'VEINTRUE010',
-    label: '真祖血姫 ヴェイン',
-    cardIds: ['SP-010'],
-  },
+  { code: 'SOUL-PAGE-001', normalizedCode: 'SOULPAGE001', label: '禁書・魂断の頁', cardIds: ['SP-001'] },
+  { code: 'BLOOD-CUP-002', normalizedCode: 'BLOODCUP002', label: '血月の杯', cardIds: ['SP-002'] },
+  { code: 'ROYAL-ORDER-003', normalizedCode: 'ROYALORDER003', label: '王冠の勅命', cardIds: ['SP-003'] },
+  { code: 'BLACK-KNIGHT-004', normalizedCode: 'BLACKKNIGHT004', label: '不滅の黒騎兵', cardIds: ['SP-004'] },
+  { code: 'JUDGEMENT-005', normalizedCode: 'JUDGEMENT005', label: '断罪の聖騎士', cardIds: ['SP-005'] },
+  { code: 'CRIMSON-006', normalizedCode: 'CRIMSON006', label: '紅蓮の魔装兵', cardIds: ['SP-006'] },
+  { code: 'MOONSHADOW-007', normalizedCode: 'MOONSHADOW007', label: '月影の処刑人', cardIds: ['SP-007'] },
+  { code: 'BLOOD-MOON-008', normalizedCode: 'BLOODMOON008', label: '血月', cardIds: ['SP-008'] },
+  { code: 'THRONE-009', normalizedCode: 'THRONE009', label: '王の玉座', cardIds: ['SP-009'] },
+  { code: 'TRUE-VEIN-010', normalizedCode: 'TRUEVEIN010', label: '真祖血姫 ヴェイン', cardIds: ['SP-010'] },
 ];
 
 const UNLOCK_CODE_MAP = new Map(UNLOCK_CODE_DEFS.map((entry) => [entry.normalizedCode, entry]));
@@ -353,7 +455,7 @@ function broadcastRoom(room, noticeMessage = '') {
 
 function startRoomGameRound(room, startNotice = '') {
   if (!room || !room.p1 || !room.p2) return { ok: false, message: 'P1 と P2 が揃ってから開始してください。' };
-  if (!validateDeckPayload(room.p1.deckPayload) || !validateDeckPayload(room.p2.deckPayload)) {
+  if (!validateDeckPayload(room.p1.deckPayload, room.p1.saveKey, room.p1.unlockTokens) || !validateDeckPayload(room.p2.deckPayload, room.p2.saveKey, room.p2.unlockTokens)) {
     return { ok: false, message: 'どちらかのデッキが不正です。入り直してください。' };
   }
   clearRoomControlRequests(room);
@@ -458,6 +560,7 @@ function createUnitState(cardId, owner, forcedInstanceId = '') {
     singleUseDamageReduction: 0,
     guardBlockUsed: false,
     negateDamageUsed: false,
+    surviveOnceUsed: false,
   };
 }
 
@@ -776,13 +879,16 @@ function beginTurn(game, playerKey) {
 function getRequiredItemTargetType(card) {
   switch (card?.effect_type) {
     case 'full_heal_single':
+    case 'heal_single_3_atk_up_turn_1':
     case 'buff_move_atk_turn_1':
     case 'shield_single_2_once':
     case 'move_twice_single':
+    case 'royal_command_single':
       return 'ally';
     case 'damage_single_1':
     case 'damage_single_2':
     case 'destroy_single':
+    case 'destroy_single_no_revive':
     case 'disable_attack_next_round':
     case 'stun_single_1_turn':
       return 'enemy';
@@ -794,7 +900,7 @@ function getRequiredItemTargetType(card) {
 }
 
 function isOffensiveItem(card) {
-  return ['damage_single_1', 'damage_single_2', 'damage_aoe_target_radius_1', 'disable_attack_next_round', 'stun_single_1_turn', 'destroy_single'].includes(card?.effect_type);
+  return ['damage_single_1', 'damage_single_2', 'damage_aoe_target_radius_1', 'disable_attack_next_round', 'stun_single_1_turn', 'destroy_single', 'destroy_single_no_revive'].includes(card?.effect_type);
 }
 
 function validateItemTarget(game, playerKey, card, targetIndex) {
@@ -831,6 +937,18 @@ function applyServerSideItemEffects(game, playerKey, cardId, targetIndex) {
       if (!targetUnit || targetUnit.owner !== playerKey) return;
       game.turnState.acceleratedUnitId = targetUnit.instanceId;
       game.turnState.acceleratedMovesRemaining = 2 + effectBoost;
+      break;
+    }
+    case 'heal_single_3_atk_up_turn_1': {
+      if (!targetUnit || targetUnit.owner !== playerKey) return;
+      targetUnit.currentHp = Math.min(targetUnit.maxHp, Number(targetUnit.currentHp || 0) + 3);
+      targetUnit.tempAtkBuff = Number(targetUnit.tempAtkBuff || 0) + 1;
+      break;
+    }
+    case 'royal_command_single': {
+      if (!targetUnit || targetUnit.owner !== playerKey) return;
+      game.turnState.acceleratedUnitId = targetUnit.instanceId;
+      game.turnState.acceleratedMovesRemaining = Math.max(Number(game.turnState.acceleratedMovesRemaining || 0), 1);
       break;
     }
     case 'disable_attack_next_round': {
@@ -882,6 +1000,7 @@ function sanitizeBoardSnapshot(board) {
       singleUseDamageReduction: Math.max(0, Number(cell.singleUseDamageReduction || 0)),
       guardBlockUsed: !!cell.guardBlockUsed,
       negateDamageUsed: !!cell.negateDamageUsed,
+      surviveOnceUsed: !!cell.surviveOnceUsed,
     };
   });
 }

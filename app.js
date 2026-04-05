@@ -2029,11 +2029,11 @@ function buildItemEffectVisual(card, fx = {}) {
   if (effectType === 'damage_aoe_target_radius_1') {
     return { ...common, accent: 'rgba(255, 102, 68, 0.82)', soft: 'rgba(255, 102, 68, 0.24)', glow: 'rgba(255, 132, 82, 0.42)', label: 'ITEM EFFECT', title: 'BLAST', subtitle: '爆裂が周囲に広がる', cellClass: 'rv-itemfx-burst', cellWord: 'BLAST', cellTone: 'fire' };
   }
-  if (effectType === 'destroy_single') {
+  if (effectType === 'destroy_single' || effectType === 'destroy_single_no_revive') {
     return { ...common, accent: 'rgba(255, 154, 98, 0.82)', soft: 'rgba(255, 154, 98, 0.2)', glow: 'rgba(255, 170, 112, 0.38)', label: 'ITEM EFFECT', title: 'BREAK', subtitle: '破壊の力が発動', cellClass: 'rv-itemfx-break', cellWord: 'BREAK', cellTone: 'break' };
   }
-  if (effectType === 'heal_single_2' || effectType === 'full_heal_single') {
-    return { ...common, accent: 'rgba(84, 226, 148, 0.82)', soft: 'rgba(84, 226, 148, 0.2)', glow: 'rgba(116, 255, 186, 0.36)', label: 'ITEM EFFECT', title: 'HEAL', subtitle: '生命力が戻る', cellClass: 'rv-itemfx-heal', cellWord: 'HEAL', cellTone: 'heal' };
+  if (effectType === 'heal_single_2' || effectType === 'full_heal_single' || effectType === 'heal_single_3_atk_up_turn_1') {
+    return { ...common, accent: 'rgba(84, 226, 148, 0.82)', soft: 'rgba(84, 226, 148, 0.2)', glow: 'rgba(116, 255, 186, 0.36)', label: 'ITEM EFFECT', title: effectType === 'heal_single_3_atk_up_turn_1' ? 'BLOOD' : 'HEAL', subtitle: effectType === 'heal_single_3_atk_up_turn_1' ? '血の杯が力を満たす' : '生命力が戻る', cellClass: 'rv-itemfx-heal', cellWord: 'HEAL', cellTone: 'heal' };
   }
   if (name.includes('天使') || effectType === 'heal_all_1') {
     return { ...common, accent: 'rgba(255, 240, 150, 0.86)', soft: 'rgba(255, 240, 150, 0.24)', glow: 'rgba(255, 240, 156, 0.38)', label: 'ITEM EFFECT', title: 'BLESS', subtitle: '祝福の光が降り注ぐ', cellClass: 'rv-itemfx-bless', cellWord: 'BLESS', cellTone: 'heal', overlayMs: 980, pulseMs: 1020, staggerMs: 85 };
@@ -2050,8 +2050,8 @@ function buildItemEffectVisual(card, fx = {}) {
   if (effectType === 'shield_single_2_once' || effectType === 'team_damage_minus_1_until_next_round') {
     return { ...common, accent: 'rgba(104, 166, 255, 0.82)', soft: 'rgba(104, 166, 255, 0.2)', glow: 'rgba(116, 182, 255, 0.36)', label: 'ITEM EFFECT', title: 'GUARD', subtitle: '防壁が展開される', cellClass: 'rv-itemfx-shield', cellWord: 'GUARD', cellTone: 'shield' };
   }
-  if (effectType === 'move_twice_single') {
-    return { ...common, accent: 'rgba(255, 214, 92, 0.84)', soft: 'rgba(255, 214, 92, 0.2)', glow: 'rgba(255, 222, 108, 0.34)', label: 'ITEM EFFECT', title: 'HASTE', subtitle: '加速の力が宿る', cellClass: 'rv-itemfx-haste', cellWord: 'HASTE', cellTone: 'haste' };
+  if (effectType === 'move_twice_single' || effectType === 'royal_command_single') {
+    return { ...common, accent: 'rgba(255, 214, 92, 0.84)', soft: 'rgba(255, 214, 92, 0.2)', glow: 'rgba(255, 222, 108, 0.34)', label: 'ITEM EFFECT', title: effectType === 'royal_command_single' ? 'ORDER' : 'HASTE', subtitle: effectType === 'royal_command_single' ? '王命が下される' : '加速の力が宿る', cellClass: 'rv-itemfx-haste', cellWord: 'HASTE', cellTone: 'haste' };
   }
   return { ...common, accent: 'rgba(220, 145, 255, 0.8)', soft: 'rgba(220, 145, 255, 0.18)', glow: 'rgba(220, 145, 255, 0.32)', label: 'ITEM EFFECT', title: name || 'MAGIC', subtitle: 'アイテム効果が発動', cellClass: 'rv-itemfx-power', cellWord: 'ITEM', cellTone: 'power' };
 }
@@ -3661,16 +3661,30 @@ function getHpClass(currentHp, maxHp) {
 }
 
 
-function getUnitDamageReductionParts(unit, boardIndex = null) {
+function getUnitDamageReductionParts(unit, boardIndex = null, options = {}) {
   if (!unit) return [];
   const player = getPlayerState(unit.owner);
   const parts = [];
   const shieldReduction = Number(unit.singleUseDamageReduction || 0);
   const teamReduction = Number(player?.teamDamageReduction || 0);
   const guardianReduction = boardIndex != null ? getAdjacentGuardianReduction(boardIndex, unit.owner) : 0;
+  const attacker = options?.attacker || null;
+  const strongerEnemyReduction = attacker
+    && attacker.owner !== unit.owner
+    && unitHasEffectType(unit, 'reduce_damage_from_stronger_enemy_1')
+    && Number(attacker.atk || 0) > Number(unit.atk || 0)
+      ? 1
+      : 0;
   if (shieldReduction > 0) parts.push({ label: '防護符', value: shieldReduction });
   if (teamReduction > 0) parts.push({ label: '防壁展開', value: teamReduction });
   if (guardianReduction > 0) parts.push({ label: guardianReduction > 1 ? `守護兵×${guardianReduction}` : '守護兵', value: guardianReduction });
+  if (strongerEnemyReduction > 0) parts.push({ label: '断罪の聖騎士', value: strongerEnemyReduction });
+  if (boardIndex != null && isPointZone(boardIndex)) {
+    const fieldCard = getPlayerFieldCard(unit.owner);
+    if (fieldCard?.effect_type === 'field_center_ally_guard_1_atk_plus_1') {
+      parts.push({ label: '王の玉座', value: 1 });
+    }
+  }
   return parts;
 }
 
@@ -4029,14 +4043,13 @@ function ensureUnlockPanel() {
     </div>
     <div class="unlock-code-row">
       <label for="unlockCodeInput">解放コード</label>
-      <input id="unlockCodeInput" type="text" placeholder="例: BLOOD-MOON-001" />
+      <input id="unlockCodeInput" type="text" placeholder="解放コードを入力" />
       <button id="unlockRedeemButton" class="button primary" type="button">解放する</button>
     </div>
     <div id="unlockStatusBox" class="unlock-status-box info"></div>
     <div class="unlock-note-list">
       <div>・この試作版は、<strong>保存キー + 解放コード</strong> で使います。</div>
       <div>・同じブラウザなら、解放済みの証明はそのまま残ります。</div>
-      <div>・使えるサンプルコード: <code>BLOOD-MOON-001</code> / <code>VEIN-TRUE-010</code></div>
     </div>
     <div class="unlock-owned-block">
       <div class="unlock-owned-title">解放済みの特別カード</div>
@@ -4596,6 +4609,7 @@ function createUnitInstance(cardId, owner, forcedInstanceId = '') {
     singleUseDamageReduction: 0,
     guardBlockUsed: false,
     negateDamageUsed: false,
+    surviveOnceUsed: false,
   };
 }
 
@@ -4861,7 +4875,7 @@ function countActiveFieldEffects(effectType) {
 
 function getItemEffectBoost(playerKey, effectType = '') {
   if (!playerHasFieldEffect(playerKey, 'field_item_effect_plus_1')) return 0;
-  if (['destroy_single', 'disable_attack_next_round', 'stun_single_1_turn', 'full_heal_single'].includes(effectType)) return 0;
+  if (['destroy_single', 'destroy_single_no_revive', 'disable_attack_next_round', 'stun_single_1_turn', 'full_heal_single', 'heal_single_3_atk_up_turn_1', 'royal_command_single'].includes(effectType)) return 0;
   return 1;
 }
 
@@ -4884,7 +4898,7 @@ function currentPlayerCannotAttackAfterMove() {
 
 function isOffensiveItemCard(card) {
   if (!card) return false;
-  return ['damage_single_1', 'damage_single_2', 'damage_aoe_target_radius_1', 'disable_attack_next_round', 'stun_single_1_turn', 'destroy_single'].includes(card.effect_type);
+  return ['damage_single_1', 'damage_single_2', 'damage_aoe_target_radius_1', 'disable_attack_next_round', 'stun_single_1_turn', 'destroy_single', 'destroy_single_no_revive'].includes(card.effect_type);
 }
 
 function isFogProtectedTargetForItem(card, attackerPlayerKey, targetIndex) {
@@ -4899,6 +4913,8 @@ function getFieldAttackBonus(playerKey, boardIndex) {
   const fieldCard = getPlayerFieldCard(playerKey);
   let bonus = 0;
   if (fieldCard?.effect_type === 'field_center_ally_atk_plus_1' && isPointZone(boardIndex)) bonus += 1;
+  if (fieldCard?.effect_type === 'field_center_ally_atk_plus_2' && isPointZone(boardIndex)) bonus += 2;
+  if (fieldCard?.effect_type === 'field_center_ally_guard_1_atk_plus_1' && isPointZone(boardIndex)) bonus += 1;
   bonus += countActiveFieldEffects('field_all_atk_plus_1');
   return bonus;
 }
@@ -5081,8 +5097,8 @@ function hasLivingOrPendingRevive(playerKey) {
 
 function getItemTargetMode(card) {
   if (!card) return 'none';
-  if (['damage_single_1', 'damage_single_2', 'disable_attack_next_round', 'stun_single_1_turn', 'destroy_single'].includes(card.effect_type)) return 'enemy';
-  if (['heal_single_2', 'full_heal_single', 'buff_move_atk_turn_1', 'shield_single_2_once', 'move_twice_single'].includes(card.effect_type)) return 'ally';
+  if (['damage_single_1', 'damage_single_2', 'disable_attack_next_round', 'stun_single_1_turn', 'destroy_single', 'destroy_single_no_revive'].includes(card.effect_type)) return 'enemy';
+  if (['heal_single_2', 'full_heal_single', 'heal_single_3_atk_up_turn_1', 'buff_move_atk_turn_1', 'shield_single_2_once', 'move_twice_single', 'royal_command_single'].includes(card.effect_type)) return 'ally';
   if (['damage_aoe_target_radius_1'].includes(card.effect_type)) return 'any';
   return 'none';
 }
@@ -5129,7 +5145,7 @@ function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
   const ignoreReduction = !!options.ignoreReduction;
   const hasExplicitCredit = Object.prototype.hasOwnProperty.call(options, 'creditPlayerKey');
   const creditPlayerKey = hasExplicitCredit ? options.creditPlayerKey : matchState.currentPlayer;
-  const reductionParts = ignoreReduction ? [] : getUnitDamageReductionParts(defender, targetIndex);
+  const reductionParts = ignoreReduction ? [] : getUnitDamageReductionParts(defender, targetIndex, { attacker: options.attacker || null });
   const totalReduction = reductionParts.reduce((sum, part) => sum + Number(part.value || 0), 0);
   const requestedDamage = Math.max(0, Number(damage || 0));
   const reduced = ignoreReduction ? 0 : Math.min(requestedDamage, totalReduction);
@@ -5154,6 +5170,12 @@ function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
 
   defender.currentHp -= actualDamage;
   if (!ignoreReduction) addLog(`${sourceLabel} ${defender.name} に ${actualDamage} ダメージ`);
+  if (defender.currentHp <= 0 && unitHasEffectType(defender, 'survive_once_at_1') && !defender.surviveOnceUsed) {
+    defender.surviveOnceUsed = true;
+    defender.currentHp = 1;
+    addLog(`${defender.name} は一度だけ HP1 で踏みとどまりました`);
+    return { defeated: false, damage: actualDamage, reduced, blocked: false, survivedOnce: true };
+  }
   if (defender.currentHp <= 0) {
     matchState.board[targetIndex] = null;
     clearPendingRedeployForUnit(defender);
@@ -5162,7 +5184,7 @@ function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
     }
     if (!options.suppressDefeatSfx) playSfx('defeat');
     addLog(`${defender.name} が撃破されました`);
-    queueUnitRevive(defender);
+    if (!options.noRevive) queueUnitRevive(defender);
     return { defeated: true, damage: actualDamage, reduced, blocked: false };
   }
   addLog(`${defender.name} の残りHPは ${defender.currentHp}`);
@@ -5192,7 +5214,7 @@ function applyAttackDamageToIndex(attacker, targetIndex, damage, options = {}) {
       : { ...options, creditPlayerKey: attacker.owner };
     delete redirectOptions.attackerIndex;
     addLog(`${kingCommander.unit.name} が ${defender.name} への攻撃を引き受けます`);
-    const result = applyDamageToIndex(kingCommander.index, redirectedDamage, `${PLAYER_LABEL[attacker.owner]} の ${attacker.name} が`, redirectOptions);
+    const result = applyDamageToIndex(kingCommander.index, redirectedDamage, `${PLAYER_LABEL[attacker.owner]} の ${attacker.name} が`, { ...redirectOptions, attacker });
     const kingAliveIndex = findUnitIndexById(kingInstanceId);
     const attackerAliveIndex = findUnitIndexById(attacker.instanceId);
     let counterDamage = 0;
@@ -5219,7 +5241,7 @@ function applyAttackDamageToIndex(attacker, targetIndex, damage, options = {}) {
     ? { ...options }
     : { ...options, creditPlayerKey: attacker.owner };
   delete damageOptions.attackerIndex;
-  const result = applyDamageToIndex(targetIndex, damage, `${PLAYER_LABEL[attacker.owner]} の ${attacker.name} が`, damageOptions);
+  const result = applyDamageToIndex(targetIndex, damage, `${PLAYER_LABEL[attacker.owner]} の ${attacker.name} が`, { ...damageOptions, attacker });
   return { ...result, resolvedTargetIndex: targetIndex, visualEntry: defenderVisualEntry };
 }
 
@@ -5248,6 +5270,23 @@ function applyItemEffect(card, playerKey) {
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} の HP を全回復しました（+${healedAmount}）`);
       return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount: healedAmount, impacts: resolvedIndex >= 0 && healedAmount > 0 ? [{ index: resolvedIndex, kind: 'heal', amount: healedAmount }] : [] });
+    }
+    case 'heal_single_3_atk_up_turn_1': {
+      if (!targetUnit) return false;
+      const before = targetUnit.currentHp;
+      targetUnit.currentHp = Math.min(targetUnit.maxHp, targetUnit.currentHp + 3);
+      const healedAmount = targetUnit.currentHp - before;
+      targetUnit.tempAtkBuff = Number(targetUnit.tempAtkBuff || 0) + 1;
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
+      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} を ${healedAmount} 回復し、この手番の ATK を +1 しました`);
+      return success({
+        targets: resolvedIndex >= 0 ? [resolvedIndex] : [],
+        amount: healedAmount,
+        impacts: resolvedIndex >= 0 ? [
+          ...(healedAmount > 0 ? [{ index: resolvedIndex, kind: 'heal', amount: healedAmount }] : []),
+          { index: resolvedIndex, kind: 'buff', label: 'BLOOD' },
+        ] : [],
+      });
     }
     case 'heal_all_1': {
       const allies = getLivingUnits(playerKey);
@@ -5291,6 +5330,18 @@ function applyItemEffect(card, playerKey) {
       queueUnitRevive(destroyedUnit);
       return success({ targets: [targetIndex], defeated: true, impacts: [{ index: targetIndex, kind: 'damage', amount: removedHp, defeated: true, visualEntry, label: 'BREAK', heavy: true }] });
     }
+    case 'destroy_single_no_revive': {
+      if (targetIndex == null) return false;
+      const destroyedUnit = matchState.board[targetIndex];
+      if (!destroyedUnit) return false;
+      const visualEntry = createCombatVisualEntry(destroyedUnit, targetIndex);
+      const removedHp = Math.max(1, Number(destroyedUnit.currentHp || 1));
+      matchState.board[targetIndex] = null;
+      clearPendingRedeployForUnit(destroyedUnit);
+      getPlayerState(playerKey).defeated += 1;
+      addLog(`${actorLabel}: ${card.card_name} で ${destroyedUnit.name} を破壊し、復活を封じました`);
+      return success({ targets: [targetIndex], defeated: true, impacts: [{ index: targetIndex, kind: 'damage', amount: removedHp, defeated: true, visualEntry, label: 'SEAL', heavy: true }] });
+    }
     case 'disable_attack_next_round': {
       if (!targetUnit) return false;
       targetUnit.skipAttackTurns = Math.max(targetUnit.skipAttackTurns || 0, 1);
@@ -5331,6 +5382,15 @@ function applyItemEffect(card, playerKey) {
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} はこの手番に ${amount} 回移動できます`);
       return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount, impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'HASTE' }] : [] });
+    }
+    case 'royal_command_single': {
+      if (!targetUnit || targetUnit.owner !== playerKey) return false;
+      matchState.turnState.acceleratedUnitId = targetUnit.instanceId;
+      matchState.turnState.acceleratedMovesRemaining = Math.max(Number(matchState.turnState.acceleratedMovesRemaining || 0), 1);
+      matchState.selectedUnitId = targetUnit.instanceId;
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
+      addLog(`${actorLabel}: ${card.card_name} により ${targetUnit.name} はこの手番、追加で1回移動できます`);
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount: 1, impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'ORDER' }] : [] });
     }
     case 'team_damage_minus_1_until_next_round': {
       const player = getPlayerState(playerKey);
@@ -6498,12 +6558,14 @@ function attackWithSelectedUnit(targetIndex) {
     pending.previewText = `${defender.name} を攻撃します。攻撃後、狂戦士は自身に1ダメージを受けます。よければ確定してください。`;
   } else if (attacker.cardId === 'RV-033') {
     pending.previewText = `${formatCellLabel(targetIndex)} 方向へ貫通攻撃します。1マス目と2マス目の敵に軽減無視ダメージを与えます。よければ確定してください。`;
-  } else if (attacker.cardId === 'RV-034') {
+  } else if (attacker.cardId === 'RV-034' || unitHasEffectType(attacker, 'splash_adjacent_enemy_1_on_attack')) {
     pending.previewText = `${defender.name} を攻撃し、その対象に隣接する他の敵にも1ダメージを与えます。よければ確定してください。`;
   } else if (attacker.cardId === 'RV-040') {
     pending.previewText = `${defender.name} を攻撃し、さらに炎魔剣士の周囲1マスにいる全ユニットへ1ダメージを与えます（敵味方両方）。よければ確定してください。`;
   } else if (unitHasEffectType(attacker, 'on_kill_permanent_atk_plus_1')) {
     pending.previewText = `${defender.name} を攻撃します。血王 ヴェインが敵を撃破すると、攻撃力が1永続で上昇します。よければ確定してください。`;
+  } else if (unitHasEffectType(attacker, 'on_kill_heal_1_else_atk_plus_1')) {
+    pending.previewText = `${defender.name} を攻撃します。真祖血姫 ヴェインが敵を撃破すると、HPを1回復します。すでに最大なら攻撃力が1上昇します。よければ確定してください。`;
   } else if (unitHasEffectType(attacker, 'gain_hp_1_on_attack_permanent')) {
     pending.previewText = `${defender.name} を攻撃します。攻撃後、魔王騎士の最大HPと現在HPが1ずつ永続で上昇します。よければ確定してください。`;
   } else if (unitHasEffectType(attacker, 'row_range_attack')) {
@@ -6584,7 +6646,7 @@ function applyPendingAttack(pendingAction) {
       const damage = getEffectiveAtk(attacker, sourceIndex);
       resolveAttackHit(idx, damage, { ignoreReduction: true });
     });
-  } else if (attacker.cardId === 'RV-034') {
+  } else if (attacker.cardId === 'RV-034' || unitHasEffectType(attacker, 'splash_adjacent_enemy_1_on_attack')) {
     const originalTargetIndex = pendingAction.targetIndex;
     const splashTargets = getOrthogonalNeighbors(originalTargetIndex)
       .filter((idx) => idx !== originalTargetIndex)
@@ -6614,6 +6676,21 @@ function applyPendingAttack(pendingAction) {
   if (attackerAfterPrimary && unitHasEffectType(attackerAfterPrimary, 'on_kill_permanent_atk_plus_1') && defeatedByAttack > 0) {
     attackerAfterPrimary.atk += defeatedByAttack;
     addLog(`${attackerAfterPrimary.name} は撃破効果で攻撃力が ${defeatedByAttack} 上昇しました（ATK ${attackerAfterPrimary.atk}）`);
+  }
+  if (attackerAfterPrimary && unitHasEffectType(attackerAfterPrimary, 'on_kill_heal_1_else_atk_plus_1') && defeatedByAttack > 0) {
+    let totalHealed = 0;
+    let totalAtkUp = 0;
+    for (let i = 0; i < defeatedByAttack; i += 1) {
+      if (attackerAfterPrimary.currentHp < attackerAfterPrimary.maxHp) {
+        attackerAfterPrimary.currentHp += 1;
+        totalHealed += 1;
+      } else {
+        attackerAfterPrimary.atk += 1;
+        totalAtkUp += 1;
+      }
+    }
+    if (totalHealed > 0) addLog(`${attackerAfterPrimary.name} は撃破効果で HP を ${totalHealed} 回復しました`);
+    if (totalAtkUp > 0) addLog(`${attackerAfterPrimary.name} は撃破効果で攻撃力が ${totalAtkUp} 上昇しました（ATK ${attackerAfterPrimary.atk}）`);
   }
   if (attackerAfterPrimary && unitHasEffectType(attackerAfterPrimary, 'gain_hp_1_on_attack_permanent')) {
     attackerAfterPrimary.maxHp += 1;
@@ -7018,6 +7095,14 @@ function renderFieldLog(playerKey) {
   }
   if (field.effect_type === 'field_item_effect_plus_1') {
     addLog(`${PLAYER_LABEL[playerKey]}: 環境カード「${field.card_name}」により、自分が使う数値系アイテム効果が +1 されています（破壊・行動不能・全回復は除く）`);
+    return;
+  }
+  if (field.effect_type === 'field_center_ally_atk_plus_2') {
+    addLog(`${PLAYER_LABEL[playerKey]}: 環境カード「${field.card_name}」により、中央9マスの味方ユニットは攻撃力が 2 上昇します`);
+    return;
+  }
+  if (field.effect_type === 'field_center_ally_guard_1_atk_plus_1') {
+    addLog(`${PLAYER_LABEL[playerKey]}: 環境カード「${field.card_name}」により、中央9マスの味方ユニットは受けるダメージ -1、攻撃力 +1 になります`);
     return;
   }
   addLog(`${PLAYER_LABEL[playerKey]}: 環境カード「${field.card_name}」の処理を記録しました`);
