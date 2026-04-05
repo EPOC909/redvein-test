@@ -704,6 +704,26 @@ ${roomLog.textContent}` : line;
       return;
     }
 
+    if (data.type === 'game_finished') {
+      const api = window.REDVEIN_ROOM_API;
+      currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
+      currentRoomState = 'finished';
+      currentRoomStateLabel.textContent = currentRoomState;
+      updateRoomActionUi();
+      if (api && typeof api.applyRoomGameFinished === 'function') {
+        api.applyRoomGameFinished(data);
+      } else if (api && typeof api.applyRoomStateSync === 'function') {
+        api.applyRoomStateSync({
+          phase: 'finished',
+          winner: data.message || '',
+          currentPlayer: data.currentPlayer || currentBattlePlayer,
+          round: data.round,
+        });
+      }
+      configureRoomSync();
+      return;
+    }
+
     if (data.type === 'room_closed') {
       leaveClosedRoomLocally(data.message || 'ルームが終了しました。');
       return;

@@ -171,6 +171,8 @@ let combatFxTurnSnapshot = null;
 let combatFxTimers = new Set();
 let combatFxHoldUntil = 0;
 let combatFxHoldTimer = null;
+let finishShowcaseReadyAt = 0;
+let finishShowcaseTimer = null;
 let combatFxPendingRender = false;
 let combatFxSkipNextSnapshotDiff = false;
 
@@ -504,6 +506,33 @@ function clearMatchFinishOverlayState() {
   player1PointsCard?.classList.remove('rv-finish-score-emphasis');
   player2PointsCard?.classList.remove('rv-finish-score-emphasis');
 }
+
+function clearFinishShowcaseSchedule() {
+  finishShowcaseReadyAt = 0;
+  if (finishShowcaseTimer) {
+    clearTimeout(finishShowcaseTimer);
+    finishShowcaseTimer = null;
+  }
+}
+
+function isFinishShowcaseReady() {
+  return matchState.phase === 'finished' && (!finishShowcaseReadyAt || Date.now() >= finishShowcaseReadyAt);
+}
+
+function scheduleFinishShowcase(delayMs = 0) {
+  const delay = Math.max(0, Math.round(Number(delayMs) || 0));
+  clearFinishShowcaseSchedule();
+  if (matchState.phase !== 'finished') return 0;
+  if (delay <= 0) return 0;
+  finishShowcaseReadyAt = Date.now() + delay;
+  finishShowcaseTimer = setTimeout(() => {
+    finishShowcaseTimer = null;
+    finishShowcaseReadyAt = 0;
+    renderMatchArea();
+  }, delay + 16);
+  return delay;
+}
+
 
 
 function injectActionGuideStyles() {
@@ -1599,6 +1628,7 @@ function resetCombatFxTracking() {
   combatFxSkipNextSnapshotDiff = false;
   combatFxBoardSnapshot = null;
   combatFxTurnSnapshot = null;
+  clearFinishShowcaseSchedule();
 }
 
 function getCombatFxHoldMsRemaining() {
@@ -2918,7 +2948,30 @@ function setSelectionInfoText(text) {
   });
 }
 
+
+function enforceStaticActionButtonLabels() {
+  [
+    [itemPhaseDoneButton, 'アイテムを使わず次へ'],
+    [itemPhaseDoneButtonRight, 'アイテムを使わず次へ'],
+    [confirmItemUseButton, 'このアイテムを使う'],
+    [confirmItemUseButtonRight, 'このアイテムを使う'],
+    [cancelItemUseButton, 'キャンセル'],
+    [cancelItemUseButtonRight, 'キャンセル'],
+  ].forEach(([button, label]) => {
+    if (!button) return;
+    if ((button.textContent || '').trim() !== label) {
+      button.textContent = label;
+    }
+    button.hidden = false;
+    button.style.display = '';
+    button.style.visibility = 'visible';
+    button.style.opacity = '';
+    button.setAttribute('aria-label', label);
+  });
+}
+
 function syncActionButtonsState(config) {
+  enforceStaticActionButtonLabels();
   const activeIndex = getActivePanelIndex();
   actionPanels.forEach((panel, index) => {
     const isActiveSide = index === activeIndex;
@@ -2941,6 +2994,10 @@ function syncActionButtonsState(config) {
       panel.attackModeButton && panel.attackModeButton.classList.toggle('mirrored-action-button', true);
       panel.endTurnButton && panel.endTurnButton.classList.toggle('mirrored-action-button', true);
       panel.clearSelectionButton && panel.clearSelectionButton.classList.toggle('mirrored-action-button', true);
+      if (panel.itemPhaseDoneButton) {
+        panel.itemPhaseDoneButton.hidden = false;
+        panel.itemPhaseDoneButton.style.visibility = 'visible';
+      }
     }
   });
 }
@@ -4799,7 +4856,7 @@ ${hoverEffectText}`;
     boardGrid.appendChild(cell);
   }
 
-  if (matchState.phase === 'finished') {
+  if (isFinishShowcaseReady()) {
     renderMatchFinishOverlay();
   }
 }
@@ -5021,6 +5078,8 @@ function finishMatch(message) {
     lastFinishedSfxMessage = message;
   }
   addLog(message);
+  const showcaseDelay = Math.max(720, getCombatFxHoldMsRemaining() + 180);
+  scheduleFinishShowcase(showcaseDelay);
   renderMatchArea();
 }
 
@@ -6029,17 +6088,48 @@ function exportRoomSyncSnapshot() {
 
 function applyRoomStateSync(data = {}) {
   clearRoomPendingRequests();
+  const wasFinished = matchState.phase === 'finished';
   if (typeof data.currentPlayer === 'string') matchState.currentPlayer = data.currentPlayer;
   if (typeof data.round === 'number') matchState.round = data.round;
   if (typeof data.phase === 'string') matchState.phase = data.phase;
+  if (typeof data.winner === 'string' && data.winner.trim()) matchState.winner = data.winner.trim();
   if (matchState.turnState) {
     if (typeof data.itemPhaseOpen === 'boolean') matchState.turnState.itemWindowOpen = data.itemPhaseOpen;
     if (typeof data.itemUsed === 'boolean') matchState.turnState.itemUsed = data.itemUsed;
   }
-  if (getCombatFxHoldMsRemaining() > 0) {
+  if (matchState.phase === 'finished' && !wasFinished) {
+    const showcaseDelay = Math.max(720, getCombatFxHoldMsRemaining() + 180);
+    scheduleFinishShowcase(showcaseDelay);
+  } else if (matchState.phase !== 'finished') {
+    clearFinishShowcaseSchedule();
+  }
+  if (getCombatFxHoldMsRemaining() > 0 || (matchState.phase === 'finished' && !isFinishShowcaseReady() && finishShowcaseReadyAt > 0)) {
     queueRenderAfterCombatFx();
     return true;
   }
+  renderMatchArea();
+  return true;
+}
+
+
+function applyRoomGameFinished(data = {}) {
+  clearRoomPendingRequests();
+  if (typeof data.currentPlayer === 'string') matchState.currentPlayer = data.currentPlayer;
+  if (typeof data.round === 'number') matchState.round = data.round;
+  matchState.phase = 'finished';
+  matchState.active = true;
+  const message = String(data.message || data.winner || matchState.winner || '対戦が終了しました').trim();
+  const wasSameMessage = matchState.winner === message;
+  matchState.winner = message;
+  if (message && !wasSameMessage) {
+    addLog(message);
+  }
+  if (lastFinishedSfxMessage !== message) {
+    playSfx(getFinishSfxKind(message));
+    lastFinishedSfxMessage = message;
+  }
+  const showcaseDelay = Math.max(780, getCombatFxHoldMsRemaining() + 220);
+  scheduleFinishShowcase(showcaseDelay);
   renderMatchArea();
   return true;
 }
@@ -6057,6 +6147,7 @@ window.REDVEIN_ROOM_API = {
   applyRoomEndTurn,
   exportRoomSyncSnapshot,
   applyRoomStateSync,
+  applyRoomGameFinished,
   getCombatFxHoldMsRemaining,
   notifyRoomRequestError,
 };
