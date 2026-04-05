@@ -131,6 +131,395 @@ let sfxMasterGainNode = null;
 let sfxToggleButton = null;
 let lastFinishedSfxMessage = '';
 
+let actionGuideRoot = null;
+let actionGuideTitle = null;
+let actionGuideMain = null;
+let actionGuideSub = null;
+let actionGuideMeta = null;
+
+
+function injectActionGuideStyles() {
+  if (document.getElementById('redveinActionGuideStyle')) return;
+  const style = document.createElement('style');
+  style.id = 'redveinActionGuideStyle';
+  style.textContent = `
+    #redveinActionGuide {
+      position: fixed;
+      top: 84px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(760px, calc(100vw - 24px));
+      z-index: 9998;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 208, 120, 0.38);
+      background: linear-gradient(180deg, rgba(36, 18, 24, 0.96), rgba(23, 12, 18, 0.94));
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(255, 214, 128, 0.08) inset;
+      backdrop-filter: blur(10px);
+      padding: 12px 16px 14px;
+      pointer-events: none;
+    }
+    #redveinActionGuide.rv-guide-hidden { display: none; }
+    #redveinActionGuide .rv-guide-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(255, 214, 128, 0.12);
+      border: 1px solid rgba(255, 214, 128, 0.26);
+      color: #ffd992;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+    #redveinActionGuide .rv-guide-title {
+      font-size: 24px;
+      line-height: 1.3;
+      font-weight: 900;
+      color: #fff3f6;
+      text-shadow: 0 2px 12px rgba(0, 0, 0, 0.28);
+    }
+    #redveinActionGuide .rv-guide-sub {
+      margin-top: 6px;
+      color: rgba(255, 234, 240, 0.88);
+      line-height: 1.55;
+      font-size: 14px;
+    }
+    #redveinActionGuide .rv-guide-meta {
+      margin-top: 9px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    #redveinActionGuide .rv-guide-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #ffe8ef;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .rv-guide-strong {
+      position: relative;
+      border-color: rgba(255, 214, 128, 0.95) !important;
+      box-shadow: 0 0 0 2px rgba(255, 214, 128, 0.26), 0 0 24px rgba(255, 188, 92, 0.28) !important;
+      animation: rvGuidePulse 1.25s ease-in-out infinite;
+    }
+    .rv-guide-cell {
+      box-shadow: 0 0 0 2px rgba(255, 214, 128, 0.28), inset 0 0 0 2px rgba(255, 214, 128, 0.22), 0 0 18px rgba(255, 188, 92, 0.2) !important;
+      animation: rvGuidePulse 1.15s ease-in-out infinite;
+    }
+    .rv-guide-soft {
+      box-shadow: 0 0 0 1px rgba(255, 214, 128, 0.22), 0 0 16px rgba(255, 188, 92, 0.18) !important;
+    }
+    .rv-guide-panel-focus {
+      border-color: rgba(255, 214, 128, 0.55) !important;
+      box-shadow: 0 0 0 2px rgba(255, 214, 128, 0.14), 0 8px 30px rgba(0, 0, 0, 0.25) !important;
+    }
+    @keyframes rvGuidePulse {
+      0%, 100% { transform: translateY(0); filter: brightness(1); }
+      50% { transform: translateY(-1px); filter: brightness(1.08); }
+    }
+    @media (max-width: 900px) {
+      #redveinActionGuide {
+        top: 72px;
+        width: calc(100vw - 16px);
+        padding: 10px 12px 12px;
+      }
+      #redveinActionGuide .rv-guide-title {
+        font-size: 18px;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function ensureActionGuide() {
+  if (actionGuideRoot && document.body.contains(actionGuideRoot)) return actionGuideRoot;
+  injectActionGuideStyles();
+  if (!document.body) return null;
+  actionGuideRoot = document.createElement('div');
+  actionGuideRoot.id = 'redveinActionGuide';
+  actionGuideRoot.className = 'rv-guide-hidden';
+  actionGuideRoot.innerHTML = `
+    <div class="rv-guide-kicker">いまやること</div>
+    <div class="rv-guide-title"></div>
+    <div class="rv-guide-sub"></div>
+    <div class="rv-guide-meta"></div>
+  `;
+  document.body.appendChild(actionGuideRoot);
+  actionGuideTitle = actionGuideRoot.querySelector('.rv-guide-title');
+  actionGuideMain = actionGuideRoot.querySelector('.rv-guide-sub');
+  actionGuideSub = actionGuideRoot.querySelector('.rv-guide-kicker');
+  actionGuideMeta = actionGuideRoot.querySelector('.rv-guide-meta');
+  return actionGuideRoot;
+}
+
+function clearActionGuideHighlights() {
+  document.querySelectorAll('.rv-guide-strong, .rv-guide-cell, .rv-guide-soft, .rv-guide-panel-focus').forEach((node) => {
+    node.classList.remove('rv-guide-strong', 'rv-guide-cell', 'rv-guide-soft', 'rv-guide-panel-focus');
+  });
+}
+
+function getGuideLocalPlayerKey() {
+  const roomPlayerKey = getRoomPlayerKey();
+  if (roomSyncState.enabled) return roomPlayerKey || '';
+  return matchState.currentPlayer || 'player1';
+}
+
+function getGuideSideLabel(playerKey) {
+  if (playerKey === 'player1') return '左側の P1';
+  if (playerKey === 'player2') return '右側の P2';
+  return 'この画面';
+}
+
+function isGuideInteractiveForLocal() {
+  if (!matchState.active) return false;
+  if (!roomSyncState.enabled) return true;
+  const roomPlayerKey = getRoomPlayerKey();
+  return !!roomPlayerKey && roomPlayerKey === matchState.currentPlayer && roomSyncState.battleControlsEnabled;
+}
+
+function buildGuideState() {
+  if (!matchState.active) {
+    return {
+      show: true,
+      title: '対戦前です',
+      detail: 'ルームを作成してプレイヤーが参加したら、試合開始で進めてください。',
+      chips: ['準備中'],
+      highlight: () => {},
+    };
+  }
+
+  if (matchState.phase === 'finished') {
+    return {
+      show: true,
+      title: matchState.winner || '対戦終了',
+      detail: '試合は終了しました。次の試合を始める場合はルームを作り直すか、もう一度対戦を開始してください。',
+      chips: ['試合終了'],
+      highlight: () => {},
+    };
+  }
+
+  if (matchState.phase === 'setup') {
+    const step = getCurrentSetupStep();
+    const localPlayerKey = getGuideLocalPlayerKey();
+    const isLocalStep = !roomSyncState.enabled || step?.player === localPlayerKey;
+    const remaining = step ? Math.max(0, step.count - matchState.placedInCurrentStep) : 0;
+    return {
+      show: true,
+      title: isLocalStep
+        ? `${getGuideSideLabel(step?.player)} の配置待ちカードを1枚押してください`
+        : `${PLAYER_LABEL[step?.player]} の配置を待っています`,
+      detail: isLocalStep
+        ? `① 配置待ちバトルカードから1枚選ぶ → ② 金色に光るマスへ置く。残り ${remaining} 枚です。`
+        : '相手が配置中です。金色のマスにカードが置かれるまで待機してください。',
+      chips: ['配置フェーズ', `残り ${remaining} 枚`],
+      highlight: () => {
+        if (!isLocalStep) return;
+        const reserve = step?.player === 'player1' ? player1Reserve : player2Reserve;
+        reserve?.closest('.reserve-slot')?.classList.add('rv-guide-panel-focus');
+        reserve?.querySelectorAll('.side-card-item button:not(:disabled)').forEach((button) => button.classList.add('rv-guide-strong'));
+        document.querySelectorAll('.board-cell.placeable').forEach((cell) => cell.classList.add('rv-guide-cell'));
+      },
+    };
+  }
+
+  const localPlayerKey = getGuideLocalPlayerKey();
+  const roomPlayerKey = getRoomPlayerKey();
+  const isSpectator = roomSyncState.enabled && !roomPlayerKey;
+  if (isSpectator) {
+    return {
+      show: true,
+      title: `${PLAYER_LABEL[matchState.currentPlayer]} の操作中です`,
+      detail: '観戦中です。光っている場所やボタンが、いま操作している側の候補です。',
+      chips: ['観戦'],
+      highlight: () => {
+        document.querySelectorAll('.board-cell.current-turn-unit').forEach((cell) => cell.classList.add('rv-guide-soft'));
+      },
+    };
+  }
+
+  if (!isGuideInteractiveForLocal()) {
+    return {
+      show: true,
+      title: `${PLAYER_LABEL[matchState.currentPlayer]} の操作待ちです`,
+      detail: 'いまは相手の手番です。自分の手番になるまで待機してください。',
+      chips: ['待機中'],
+      highlight: () => {},
+    };
+  }
+
+  const activePanel = actionPanels[getActivePanelIndex()] || null;
+  const activePlayerKey = matchState.currentPlayer;
+  const pendingAction = getPendingAction();
+  const selectedItem = getSelectedItemCard();
+  const targetUnit = getSelectedItemTargetUnit();
+  const postAttackMoveUnit = getPostAttackMoveUnit();
+  const selectedUnit = getSelectedUnit();
+  const activeItems = activePlayerKey === 'player1' ? player1Items : player2Items;
+
+  if (pendingAction) {
+    const actionLabel = pendingAction.type === 'attack' ? '攻撃' : '行動';
+    return {
+      show: true,
+      title: `${actionLabel}を確定してください`,
+      detail: pendingAction.type === 'attack'
+        ? `「この行動を確定」を押すと、${pendingAction.unitName} が ${pendingAction.targetName} を攻撃します。`
+        : `「この行動を確定」を押すと、${pendingAction.unitName} が ${pendingAction.toLabel} へ移動します。`,
+      chips: [actionLabel + '確認'],
+      highlight: () => {
+        activePanel?.actionConfirmBox?.classList.add('rv-guide-panel-focus');
+        activePanel?.confirmActionButton?.classList.add('rv-guide-strong');
+        document.querySelectorAll('.board-cell.pending-target').forEach((cell) => cell.classList.add('rv-guide-cell'));
+      },
+    };
+  }
+
+  if (isItemWindowOpen()) {
+    if (!selectedItem) {
+      return {
+        show: true,
+        title: `${getGuideSideLabel(activePlayerKey)} のアイテムを使うか選んでください`,
+        detail: 'アイテムを使うなら「使う」を押してください。使わないなら「アイテムを使わず次へ」を押します。',
+        chips: ['アイテムフェーズ', '1手番1枚まで'],
+        highlight: () => {
+          activeItems?.closest('.item-slot')?.classList.add('rv-guide-panel-focus');
+          activeItems?.querySelectorAll('.side-card-item button:not(:disabled)').forEach((button) => button.classList.add('rv-guide-strong'));
+          activePanel?.itemPhaseDoneButton?.classList.add('rv-guide-strong');
+        },
+      };
+    }
+
+    if (canConfirmSelectedItem(selectedItem)) {
+      return {
+        show: true,
+        title: `「${selectedItem.card_name}」を使ってよければ確定してください`,
+        detail: targetUnit
+          ? `${targetUnit.name} が対象です。「このアイテムを使う」を押すと発動します。`
+          : '対象は不要です。「このアイテムを使う」を押すとすぐ発動します。',
+        chips: ['アイテム確定'],
+        highlight: () => {
+          activePanel?.itemConfirmBox?.classList.add('rv-guide-panel-focus');
+          activePanel?.confirmItemUseButton?.classList.add('rv-guide-strong');
+        },
+      };
+    }
+
+    return {
+      show: true,
+      title: `「${selectedItem.card_name}」の対象を盤面で選んでください`,
+      detail: '光っているマスの中から対象を1つ押すと、使用確認へ進みます。',
+      chips: ['対象選択'],
+      highlight: () => {
+        document.querySelectorAll('.board-cell.item-target-ally, .board-cell.item-target-enemy, .board-cell.item-target-any').forEach((cell) => cell.classList.add('rv-guide-cell'));
+        activePanel?.cancelItemUseButton?.classList.add('rv-guide-soft');
+      },
+    };
+  }
+
+  if (postAttackMoveUnit) {
+    return {
+      show: true,
+      title: `${postAttackMoveUnit.name} を追加移動するなら光るマスを押してください`,
+      detail: '移動しないで終えるなら「手番終了」を押してください。',
+      chips: ['追加移動'],
+      highlight: () => {
+        document.querySelectorAll('.board-cell.move-target').forEach((cell) => cell.classList.add('rv-guide-cell'));
+        activePanel?.endTurnButton?.classList.add('rv-guide-strong');
+      },
+    };
+  }
+
+  if (!selectedUnit) {
+    return {
+      show: true,
+      title: `${getGuideSideLabel(activePlayerKey)} のユニットを1体選んでください`,
+      detail: 'まず自分のユニットを押すと、そのあと移動か攻撃を選べます。',
+      chips: ['通常行動'],
+      highlight: () => {
+        document.querySelectorAll('.board-cell.current-turn-unit').forEach((cell) => cell.classList.add('rv-guide-cell'));
+      },
+    };
+  }
+
+  if (matchState.actionMode === 'move') {
+    return {
+      show: true,
+      title: `${selectedUnit.name} の移動先を選んでください`,
+      detail: '光っている移動先を押すと、移動確認へ進みます。',
+      chips: ['移動モード'],
+      highlight: () => {
+        activePanel?.moveModeButton?.classList.add('rv-guide-strong');
+        document.querySelectorAll('.board-cell.move-target').forEach((cell) => cell.classList.add('rv-guide-cell'));
+      },
+    };
+  }
+
+  if (matchState.actionMode === 'attack') {
+    return {
+      show: true,
+      title: `${selectedUnit.name} の攻撃先を選んでください`,
+      detail: '光っている敵マスを押すと、攻撃確認へ進みます。',
+      chips: ['攻撃モード'],
+      highlight: () => {
+        activePanel?.attackModeButton?.classList.add('rv-guide-strong');
+        document.querySelectorAll('.board-cell.attack-target').forEach((cell) => cell.classList.add('rv-guide-cell'));
+      },
+    };
+  }
+
+  const attackReady = !currentPlayerCannotAttackAfterMove() && !matchState.turnState?.attacked && !matchState.turnState?.attackUnitId;
+  const moveReady = !matchState.turnState?.moved || (matchState.turnState?.acceleratedUnitId === selectedUnit.instanceId && matchState.turnState?.acceleratedMovesRemaining > 0);
+  const options = [];
+  if (moveReady) options.push('移動');
+  if (attackReady) options.push('攻撃');
+  options.push('手番終了');
+
+  return {
+    show: true,
+    title: `${selectedUnit.name} を選択中です。次の操作を選んでください`,
+    detail: `${options.join(' / ')} のどれかを押してください。迷ったら、まず「攻撃モード」か「移動モード」を押せば進めます。`,
+    chips: ['ユニット選択中'],
+    highlight: () => {
+      activePanel?.moveModeButton?.classList.add(moveReady ? 'rv-guide-strong' : 'rv-guide-soft');
+      activePanel?.attackModeButton?.classList.add(attackReady ? 'rv-guide-strong' : 'rv-guide-soft');
+      activePanel?.endTurnButton?.classList.add('rv-guide-soft');
+      document.querySelectorAll('.board-cell.selected-cell').forEach((cell) => cell.classList.add('rv-guide-cell'));
+    },
+  };
+}
+
+function updateActionGuide() {
+  const root = ensureActionGuide();
+  if (!root) return;
+  clearActionGuideHighlights();
+  const state = buildGuideState();
+  if (!state || state.show === false) {
+    root.classList.add('rv-guide-hidden');
+    return;
+  }
+  root.classList.remove('rv-guide-hidden');
+  if (actionGuideTitle) actionGuideTitle.textContent = state.title || '';
+  if (actionGuideMain) actionGuideMain.textContent = state.detail || '';
+  if (actionGuideMeta) {
+    actionGuideMeta.innerHTML = '';
+    const chips = Array.isArray(state.chips) ? state.chips : [];
+    chips.forEach((chip) => {
+      const node = document.createElement('div');
+      node.className = 'rv-guide-chip';
+      node.textContent = chip;
+      actionGuideMeta.appendChild(node);
+    });
+  }
+  if (typeof state.highlight === 'function') state.highlight();
+}
+
 function loadSfxEnabled() {
   try {
     const raw = localStorage.getItem(SFX_STORAGE_KEY);
@@ -292,10 +681,15 @@ function playSfx(kind) {
       scheduleTone(context, { start: start + 0.03, duration: 0.14, release: 0.08, frequency: 160, endFrequency: 55, type: 'triangle', gain: 0.35 });
       break;
     case 'victory':
-      scheduleTone(context, { start, duration: 0.08, release: 0.06, frequency: 523.25, endFrequency: 523.25, type: 'triangle', gain: 0.28 });
-      scheduleTone(context, { start: start + 0.07, duration: 0.08, release: 0.06, frequency: 659.25, endFrequency: 659.25, type: 'triangle', gain: 0.28 });
-      scheduleTone(context, { start: start + 0.14, duration: 0.1, release: 0.07, frequency: 783.99, endFrequency: 783.99, type: 'triangle', gain: 0.3 });
-      scheduleTone(context, { start: start + 0.24, duration: 0.12, release: 0.08, frequency: 1046.5, endFrequency: 1046.5, type: 'triangle', gain: 0.32 });
+      scheduleTone(context, { start, duration: 0.08, release: 0.08, frequency: 164.81, endFrequency: 110, type: 'sawtooth', gain: 0.34 });
+      scheduleTone(context, { start: start + 0.015, duration: 0.06, release: 0.05, frequency: 523.25, endFrequency: 523.25, type: 'triangle', gain: 0.28 });
+      scheduleTone(context, { start: start + 0.075, duration: 0.07, release: 0.05, frequency: 659.25, endFrequency: 659.25, type: 'triangle', gain: 0.3 });
+      scheduleTone(context, { start: start + 0.14, duration: 0.08, release: 0.06, frequency: 783.99, endFrequency: 783.99, type: 'triangle', gain: 0.32 });
+      scheduleTone(context, { start: start + 0.23, duration: 0.12, release: 0.08, frequency: 1046.5, endFrequency: 1046.5, type: 'triangle', gain: 0.42 });
+      scheduleTone(context, { start: start + 0.23, duration: 0.12, release: 0.08, frequency: 1318.51, endFrequency: 1318.51, type: 'square', gain: 0.16 });
+      scheduleTone(context, { start: start + 0.38, duration: 0.15, release: 0.1, frequency: 1567.98, endFrequency: 1567.98, type: 'triangle', gain: 0.22 });
+      scheduleTone(context, { start: start + 0.41, duration: 0.18, release: 0.12, frequency: 1046.5, endFrequency: 2093, type: 'sine', gain: 0.14 });
+      scheduleTone(context, { start: start + 0.56, duration: 0.1, release: 0.08, frequency: 2093, endFrequency: 1760, type: 'square', gain: 0.12 });
       break;
     case 'defeat_match':
       scheduleTone(context, { start, duration: 0.1, release: 0.05, frequency: 220, endFrequency: 190, type: 'triangle', gain: 0.26 });
@@ -2753,6 +3147,7 @@ function renderMatchArea() {
   renderBattleLog();
   renderItemConfirmBox();
   renderActionConfirmBox();
+  updateActionGuide();
 }
 
 function beginTurn(playerKey) {
@@ -3761,4 +4156,5 @@ window.REDVEIN_ROOM_API = {
 };
 
 setupSfx();
+ensureActionGuide();
 loadCards();
