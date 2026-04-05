@@ -38,6 +38,8 @@
   let roomHeroRole = null;
   let roomHeroRoomId = null;
   let roomHeroState = null;
+  let roomHeroArtwork = null;
+  let roomHeroArtworkFrame = null;
 
   if (!displayNameInput || !roomDeckSelect || !createRoomButton) {
     return;
@@ -135,6 +137,13 @@ ${roomLog.textContent}` : line;
             <span class="room-hero-chip">URL共有で合流</span>
             <span class="room-hero-chip">P1 / P2 / 観戦対応</span>
             <span class="room-hero-chip">同じ盤面を同期表示</span>
+            <span class="room-hero-chip">ロビーイラスト差し替え対応</span>
+          </div>
+        </div>
+        <div class="room-hero-visual">
+          <div class="room-hero-artwork-frame" id="roomHeroArtworkFrame">
+            <div class="room-hero-artwork-placeholder">LOBBY ART</div>
+            <img id="roomHeroArtwork" class="room-hero-artwork hidden" alt="RED VEIN ロビーイラスト" />
           </div>
         </div>
         <div class="room-hero-status">
@@ -164,9 +173,50 @@ ${roomLog.textContent}` : line;
     roomHeroRole = roomHero.querySelector('#roomHeroRole');
     roomHeroRoomId = roomHero.querySelector('#roomHeroRoomId');
     roomHeroState = roomHero.querySelector('#roomHeroState');
+    roomHeroArtwork = roomHero.querySelector('#roomHeroArtwork');
+    roomHeroArtworkFrame = roomHero.querySelector('#roomHeroArtworkFrame');
 
     roomSection.classList.add('room-section-enhanced');
+    ensureLobbyArtwork();
     roomSection.querySelectorAll('.room-box, .room-status-box').forEach((box) => box.classList.add('room-lobby-card'));
+  }
+
+
+  function ensureLobbyArtwork() {
+    if (!roomHeroArtwork || roomHeroArtwork.dataset.bound === 'true') return;
+    roomHeroArtwork.dataset.bound = 'true';
+    roomHeroArtwork.addEventListener('load', () => {
+      roomHeroArtwork.classList.remove('hidden');
+      roomHeroArtworkFrame?.classList.add('has-artwork');
+    });
+    roomHeroArtwork.addEventListener('error', () => {
+      roomHeroArtwork.classList.add('hidden');
+      roomHeroArtworkFrame?.classList.remove('has-artwork');
+    });
+
+    const candidates = [
+      'assets/ui/lobby-hero.webp',
+      'assets/ui/lobby-hero.png',
+      'assets/ui/lobby-hero.jpg',
+      'assets/ui/lobby-hero.jpeg',
+    ];
+
+    const tryLoad = (index = 0) => {
+      if (!roomHeroArtwork || index >= candidates.length) {
+        roomHeroArtworkFrame?.classList.remove('has-artwork');
+        return;
+      }
+      const candidate = candidates[index];
+      const probe = new Image();
+      probe.onload = () => {
+        if (!roomHeroArtwork) return;
+        roomHeroArtwork.src = `${candidate}?v=${Date.now()}`;
+      };
+      probe.onerror = () => tryLoad(index + 1);
+      probe.src = `${candidate}?check=${Date.now()}`;
+    };
+
+    tryLoad(0);
   }
 
   function updateLobbyHero() {
@@ -379,6 +429,7 @@ ${roomLog.textContent}` : line;
     updateInviteUrl();
     updateStartUi();
     updateRoomActionUi();
+    updateLobbyHero();
     localStorage.removeItem(ROOM_STORAGE_KEY);
     if (api && typeof api.resetTestMatch === 'function') {
       api.resetTestMatch();
@@ -489,6 +540,7 @@ ${roomLog.textContent}` : line;
     roomIdInput.value = currentRoomId || roomIdInput.value;
     updateStartUi(data);
     updateRoomActionUi();
+    updateLobbyHero();
     configureRoomSync();
     saveSession();
   }
@@ -836,6 +888,7 @@ ${roomLog.textContent}` : line;
       currentRoomState = 'finished';
       currentRoomStateLabel.textContent = currentRoomState;
       updateRoomActionUi();
+      updateLobbyHero();
       if (api && typeof api.applyRoomGameFinished === 'function') {
         api.applyRoomGameFinished(data);
       } else if (api && typeof api.applyRoomStateSync === 'function') {

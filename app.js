@@ -127,11 +127,17 @@ function installRightItemPhaseDoneButtonMirror() {
   mirror.setAttribute('aria-label', 'アイテムを使わず次へ');
   mirror.style.gridColumn = '1 / -1';
   mirror.classList.add('mirrored-action-button');
+  rightActionButtonsGrid.classList.add('has-mirrored-skip-button');
   rightActionButtonsGrid.insertBefore(mirror, moveModeButtonRight);
   if (itemPhaseDoneButtonRight) {
     itemPhaseDoneButtonRight.hidden = true;
     itemPhaseDoneButtonRight.style.display = 'none';
     itemPhaseDoneButtonRight.style.visibility = 'hidden';
+    itemPhaseDoneButtonRight.style.position = 'absolute';
+    itemPhaseDoneButtonRight.style.pointerEvents = 'none';
+    itemPhaseDoneButtonRight.style.width = '1px';
+    itemPhaseDoneButtonRight.style.height = '1px';
+    itemPhaseDoneButtonRight.style.overflow = 'hidden';
     itemPhaseDoneButtonRight.tabIndex = -1;
     itemPhaseDoneButtonRight.setAttribute('aria-hidden', 'true');
   }
@@ -142,19 +148,6 @@ function installRightItemPhaseDoneButtonMirror() {
 }
 
 installRightItemPhaseDoneButtonMirror();
-
-function keepOriginalRightItemPhaseDoneButtonHidden() {
-  if (!itemPhaseDoneButtonRight || !itemPhaseDoneButtonRightMirror) return;
-  itemPhaseDoneButtonRight.hidden = true;
-  itemPhaseDoneButtonRight.style.display = 'none';
-  itemPhaseDoneButtonRight.style.visibility = 'hidden';
-  itemPhaseDoneButtonRight.style.opacity = '0';
-  itemPhaseDoneButtonRight.style.pointerEvents = 'none';
-  itemPhaseDoneButtonRight.tabIndex = -1;
-  itemPhaseDoneButtonRight.setAttribute('aria-hidden', 'true');
-}
-
-keepOriginalRightItemPhaseDoneButtonHidden();
 
 let allCards = [];
 let cardMap = new Map();
@@ -3341,10 +3334,9 @@ function setSelectionInfoText(text) {
 
 
 function enforceStaticActionButtonLabels() {
-  const rightItemPhaseDoneButton = itemPhaseDoneButtonRightMirror || itemPhaseDoneButtonRight;
   [
     [itemPhaseDoneButton, 'アイテムを使わず次へ'],
-    [rightItemPhaseDoneButton, 'アイテムを使わず次へ'],
+    [itemPhaseDoneButtonRight, 'アイテムを使わず次へ'],
     [confirmItemUseButton, 'このアイテムを使う'],
     [confirmItemUseButtonRight, 'このアイテムを使う'],
     [cancelItemUseButton, 'キャンセル'],
@@ -3360,7 +3352,6 @@ function enforceStaticActionButtonLabels() {
     button.style.opacity = '';
     button.setAttribute('aria-label', label);
   });
-  keepOriginalRightItemPhaseDoneButtonHidden();
 }
 
 function syncActionButtonsState(config) {
@@ -3391,7 +3382,6 @@ function syncActionButtonsState(config) {
         panel.itemPhaseDoneButton.hidden = false;
         panel.itemPhaseDoneButton.style.visibility = 'visible';
       }
-      keepOriginalRightItemPhaseDoneButtonHidden();
     }
   });
 }

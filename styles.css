@@ -1631,13 +1631,64 @@ body.log-hidden .floating-log-panel {
 }
 .room-hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 0.9fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.9fr) minmax(240px, 0.85fr);
   gap: 18px;
   align-items: center;
 }
 .room-hero-copy {
   position: relative;
   z-index: 1;
+}
+.room-hero-visual {
+  position: relative;
+  z-index: 1;
+}
+.room-hero-artwork-frame {
+  position: relative;
+  min-height: 210px;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(215, 163, 72, 0.24);
+  background:
+    radial-gradient(circle at 20% 18%, rgba(215,163,72,0.14), transparent 24%),
+    radial-gradient(circle at 76% 28%, rgba(161,29,63,0.22), transparent 30%),
+    linear-gradient(135deg, rgba(52, 24, 31, 0.98), rgba(24, 17, 21, 0.98));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 14px 34px rgba(0,0,0,0.24);
+}
+.room-hero-artwork-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,0.04), rgba(0,0,0,0.3));
+  pointer-events: none;
+  z-index: 1;
+}
+.room-hero-artwork-frame.has-artwork::before {
+  background: linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0.18));
+}
+.room-hero-artwork-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.18em;
+  font-size: 18px;
+  font-weight: 800;
+  color: rgba(247, 231, 184, 0.52);
+  text-shadow: 0 0 20px rgba(215,163,72,0.14);
+  z-index: 0;
+}
+.room-hero-artwork-frame.has-artwork .room-hero-artwork-placeholder {
+  display: none;
+}
+.room-hero-artwork {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
 }
 .room-hero-eyebrow {
   display: inline-flex;
@@ -1776,4 +1827,23 @@ body.log-hidden .floating-log-panel {
   .room-hero-grid {
     grid-template-columns: 1fr;
   }
+  .room-hero-artwork-frame {
+    min-height: 180px;
+  }
+}
+
+.room-section.room-section-enhanced .room-section-header > div:first-child {
+  display: none;
+}
+.room-section.room-section-enhanced .room-section-header {
+  justify-content: flex-end;
+  padding-top: 0;
+  margin-bottom: 10px;
+}
+.room-section.room-section-enhanced .room-section-header .room-connection-badge {
+  min-width: 104px;
+}
+
+#actionPanelRight .action-buttons-grid.has-mirrored-skip-button > #itemPhaseDoneButtonRight {
+  display: none !important;
 }
