@@ -787,7 +787,7 @@ function ensureItemShowcase() {
   return itemShowcaseRoot;
 }
 
-function hideItemShowcase(immediate = false) {
+function hideItemShowcase(immediate = false, delayMs = 1050) {
   if (itemShowcaseHideTimer) {
     clearTimeout(itemShowcaseHideTimer);
     itemShowcaseHideTimer = null;
@@ -800,10 +800,10 @@ function hideItemShowcase(immediate = false) {
   itemShowcaseHideTimer = setTimeout(() => {
     itemShowcaseRoot?.classList.remove('rv-item-showcase-visible');
     itemShowcaseHideTimer = null;
-  }, 1050);
+  }, Math.max(0, Number(delayMs || 1050)));
 }
 
-function showItemShowcase(card) {
+function showItemShowcase(card, options = {}) {
   if (!card || card.type !== 'item') return;
   const root = ensureItemShowcase();
   if (!root) return;
@@ -840,10 +840,27 @@ function showItemShowcase(card) {
   root.classList.remove('rv-item-showcase-visible');
   void root.offsetWidth;
   root.classList.add('rv-item-showcase-visible');
-  hideItemShowcase(false);
+  hideItemShowcase(false, Number(options.displayMs || 1050));
 }
 
-
+function playItemPresentationSequence(card, fx = {}) {
+  if (!card || card.type !== 'item') return;
+  const visual = buildItemEffectVisual(card, fx);
+  const targetCount = Math.max(1, uniqueBoardIndices(visual.targets || fx.targets || []).length);
+  const showcaseMs = Math.max(820, Number(fx.showcaseMs || 1080));
+  const gapMs = Math.max(30, Number(fx.effectGapMs || 80));
+  const effectStartDelay = showcaseMs + gapMs;
+  const overlayMs = Math.max(420, Number(visual.overlayMs || 920));
+  const pulseMs = Math.max(420, Number(visual.pulseMs || 940));
+  const staggerMs = Math.max(0, Number(visual.staggerMs || 0));
+  const pulseTailMs = targetCount > 0 ? ((targetCount - 1) * staggerMs) + pulseMs : 0;
+  const totalMs = effectStartDelay + Math.max(overlayMs, pulseTailMs) + 180;
+  holdCombatFxFor(totalMs);
+  showItemShowcase(card, { displayMs: showcaseMs });
+  rememberCombatFxTimer(setTimeout(() => {
+    playItemEffectSequence(card, { ...fx, startDelay: 0, skipHold: true });
+  }, effectStartDelay));
+}
 
 function injectItemEffectStyles() {
   if (document.getElementById('redveinItemEffectStyle')) return;
@@ -854,7 +871,7 @@ function injectItemEffectStyles() {
       position: fixed;
       inset: 0;
       pointer-events: none;
-      z-index: 9997;
+      z-index: 10003;
       opacity: 0;
       transition: opacity 0.2s ease;
       --rv-item-fx-accent: rgba(255, 164, 87, 0.75);
@@ -1133,31 +1150,40 @@ function playItemEffectSequence(card, fx = {}) {
   const root = ensureItemEffectOverlay();
   if (!root) return;
   const visual = buildItemEffectVisual(card, fx);
-  root.style.setProperty('--rv-item-fx-accent', visual.accent);
-  root.style.setProperty('--rv-item-fx-accent-soft', visual.soft);
-  root.style.setProperty('--rv-item-fx-glow', visual.glow);
-  if (itemEffectLabel) itemEffectLabel.textContent = visual.label || 'ITEM EFFECT';
-  if (itemEffectTitle) itemEffectTitle.textContent = visual.title || (card.card_name || 'ITEM');
-  if (itemEffectSub) itemEffectSub.textContent = visual.subtitle || 'アイテム効果が発動';
-  root.classList.remove('rv-item-effect-visible');
-  void root.offsetWidth;
-  root.classList.add('rv-item-effect-visible');
-  rememberCombatFxTimer(setTimeout(() => root.classList.remove('rv-item-effect-visible'), visual.overlayMs || 920));
   const targets = uniqueBoardIndices(visual.targets || fx.targets || []);
   if (Number.isInteger(visual.center) && !targets.includes(visual.center)) targets.unshift(visual.center);
-  const staggerMs = Number(visual.staggerMs || 0);
+  const staggerMs = Math.max(0, Number(visual.staggerMs || 0));
+  const overlayMs = Math.max(420, Number(visual.overlayMs || 920));
+  const pulseMs = Math.max(420, Number(visual.pulseMs || 940));
   const baseDelay = 90;
+  const startDelay = Math.max(0, Number(fx.startDelay || 0));
+  const totalMs = startDelay + Math.max(overlayMs, baseDelay + (targets.length > 0 ? ((targets.length - 1) * staggerMs) + pulseMs : 0)) + 120;
+  if (!fx.skipHold) {
+    holdCombatFxFor(totalMs);
+  }
   rememberCombatFxTimer(setTimeout(() => {
-    targets.forEach((index, order) => {
-      const delay = order * staggerMs;
-      if (delay > 0) {
-        rememberCombatFxTimer(setTimeout(() => pulseCellClass(index, visual.cellClass, visual.pulseMs || 940), delay));
-      } else {
-        pulseCellClass(index, visual.cellClass, visual.pulseMs || 940);
-      }
-      spawnItemCellWord(index, visual.cellWord, visual.cellTone, delay);
-    });
-  }, baseDelay));
+    root.style.setProperty('--rv-item-fx-accent', visual.accent);
+    root.style.setProperty('--rv-item-fx-accent-soft', visual.soft);
+    root.style.setProperty('--rv-item-fx-glow', visual.glow);
+    if (itemEffectLabel) itemEffectLabel.textContent = visual.label || 'ITEM EFFECT';
+    if (itemEffectTitle) itemEffectTitle.textContent = visual.title || (card.card_name || 'ITEM');
+    if (itemEffectSub) itemEffectSub.textContent = visual.subtitle || 'アイテム効果が発動';
+    root.classList.remove('rv-item-effect-visible');
+    void root.offsetWidth;
+    root.classList.add('rv-item-effect-visible');
+    rememberCombatFxTimer(setTimeout(() => root.classList.remove('rv-item-effect-visible'), overlayMs));
+    rememberCombatFxTimer(setTimeout(() => {
+      targets.forEach((index, order) => {
+        const delay = order * staggerMs;
+        if (delay > 0) {
+          rememberCombatFxTimer(setTimeout(() => pulseCellClass(index, visual.cellClass, pulseMs), delay));
+        } else {
+          pulseCellClass(index, visual.cellClass, pulseMs);
+        }
+        spawnItemCellWord(index, visual.cellWord, visual.cellTone, delay);
+      });
+    }, baseDelay));
+  }, startDelay));
 }
 
 function clearCombatFxTimers() {
@@ -3884,13 +3910,12 @@ function performItemUseLocal(selectedCardId, targetIndex = null, playerKey = mat
   const applied = applyItemEffect(card, matchState.currentPlayer);
   if (!applied) return false;
 
-  showItemShowcase(card);
   itemState.used = true;
   matchState.turnState.itemUsed = true;
   closeItemWindow();
   playSfx('item');
   renderMatchArea();
-  playItemEffectSequence(card, applied.fx || {});
+  playItemPresentationSequence(card, applied.fx || {});
   if (checkWinByElimination()) return true;
   return true;
 }
@@ -5459,6 +5484,16 @@ function applyRoomEndTurn(data = {}) {
   return ok;
 }
 
+function notifyRoomRequestError() {
+  clearRoomPendingRequests();
+  if (getCombatFxHoldMsRemaining() > 0) {
+    queueRenderAfterCombatFx();
+    return true;
+  }
+  renderMatchArea();
+  return true;
+}
+
 function exportRoomSyncSnapshot() {
   return {
     phase: matchState.phase,
@@ -5548,6 +5583,7 @@ window.REDVEIN_ROOM_API = {
   exportRoomSyncSnapshot,
   applyRoomStateSync,
   getCombatFxHoldMsRemaining,
+  notifyRoomRequestError,
 };
 
 setupSfx();

@@ -41,6 +41,7 @@
   let currentBattlePlayer = '';
   let reconnectTimer = null;
   let manualReconnectInFlight = false;
+  let actionResponseTimer = null;
 
   function loadSavedDecks() {
     roomDeckSelect.innerHTML = '<option value="">保存済みデッキを選択</option>';
@@ -277,6 +278,30 @@ ${roomLog.textContent}` : line;
     socket.send(JSON.stringify(payload));
   }
 
+  function clearActionResponseTimer() {
+    if (actionResponseTimer) {
+      clearTimeout(actionResponseTimer);
+      actionResponseTimer = null;
+    }
+  }
+
+  function releasePendingUiLock() {
+    clearActionResponseTimer();
+    const api = window.REDVEIN_ROOM_API;
+    if (api && typeof api.notifyRoomRequestError === 'function') {
+      api.notifyRoomRequestError();
+    }
+  }
+
+  function armActionResponseTimer(label) {
+    clearActionResponseTimer();
+    actionResponseTimer = window.setTimeout(() => {
+      releasePendingUiLock();
+      writeLog(`${label || '操作'}の応答が遅れているため、操作ロックを解除しました。もう一度お試しください。`);
+      configureRoomSync();
+    }, 5000);
+  }
+
   function currentRoleToPlayerKey() {
     if (currentRole === 'p1') return 'player1';
     if (currentRole === 'p2') return 'player2';
@@ -348,6 +373,7 @@ ${roomLog.textContent}` : line;
       role: currentRole,
       battleControlsEnabled: getBattleControlsEnabled(),
       onSetupPlaceRequest: ({ player, cardId, targetIndex }) => {
+        armActionResponseTimer('配置');
         sendMessage({
           type: 'place_setup_unit',
           roomId: currentRoomId,
@@ -357,6 +383,7 @@ ${roomLog.textContent}` : line;
         });
       },
       onMoveRequest: ({ player, unitId, sourceIndex, targetIndex }) => {
+        armActionResponseTimer('移動');
         sendMessage({
           type: 'move_unit',
           roomId: currentRoomId,
@@ -367,6 +394,7 @@ ${roomLog.textContent}` : line;
         });
       },
       onAttackRequest: ({ player, unitId, sourceIndex, targetIndex }) => {
+        armActionResponseTimer('攻撃');
         sendMessage({
           type: 'attack_unit',
           roomId: currentRoomId,
@@ -377,6 +405,7 @@ ${roomLog.textContent}` : line;
         });
       },
       onItemUseRequest: ({ player, cardId, targetIndex }) => {
+        armActionResponseTimer('アイテム使用');
         sendMessage({
           type: 'use_item',
           roomId: currentRoomId,
@@ -386,6 +415,7 @@ ${roomLog.textContent}` : line;
         });
       },
       onFinishItemPhaseRequest: ({ player }) => {
+        armActionResponseTimer('アイテム終了');
         sendMessage({
           type: 'finish_item_phase',
           roomId: currentRoomId,
@@ -393,6 +423,7 @@ ${roomLog.textContent}` : line;
         });
       },
       onEndTurnRequest: ({ player }) => {
+        armActionResponseTimer('手番終了');
         sendMessage({
           type: 'end_turn',
           roomId: currentRoomId,
@@ -429,6 +460,7 @@ ${roomLog.textContent}` : line;
 
   function handleServerMessage(data) {
     if (data.type === 'room_joined') {
+      clearActionResponseTimer();
       clearReconnectTimer();
       reconnectToken = data.reconnectToken || reconnectToken;
       currentRole = data.role || currentRole;
@@ -442,16 +474,19 @@ ${roomLog.textContent}` : line;
     }
 
     if (data.type === 'room_snapshot') {
+      clearActionResponseTimer();
       applyRoomSnapshot(data);
       return;
     }
 
     if (data.type === 'game_started') {
+      clearActionResponseTimer();
       handleGameStarted(data);
       return;
     }
 
     if (data.type === 'setup_unit_placed') {
+      clearActionResponseTimer();
       const api = window.REDVEIN_ROOM_API;
       currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
       if (data.phase === 'battle') {
@@ -467,6 +502,7 @@ ${roomLog.textContent}` : line;
     }
 
     if (data.type === 'move_applied') {
+      clearActionResponseTimer();
       const api = window.REDVEIN_ROOM_API;
       currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
       if (api && typeof api.applyRoomMove === 'function') {
@@ -478,6 +514,7 @@ ${roomLog.textContent}` : line;
     }
 
     if (data.type === 'attack_applied') {
+      clearActionResponseTimer();
       const api = window.REDVEIN_ROOM_API;
       currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
       if (api && typeof api.applyRoomAttack === 'function') {
@@ -492,6 +529,7 @@ ${roomLog.textContent}` : line;
     }
 
     if (data.type === 'item_used') {
+      clearActionResponseTimer();
       const api = window.REDVEIN_ROOM_API;
       currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
       if (api && typeof api.applyRoomItemUse === 'function') {
@@ -503,6 +541,7 @@ ${roomLog.textContent}` : line;
     }
 
     if (data.type === 'item_phase_finished') {
+      clearActionResponseTimer();
       const api = window.REDVEIN_ROOM_API;
       currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
       if (api && typeof api.applyRoomFinishItemPhase === 'function') {
@@ -514,6 +553,7 @@ ${roomLog.textContent}` : line;
     }
 
     if (data.type === 'turn_ended') {
+      clearActionResponseTimer();
       const api = window.REDVEIN_ROOM_API;
       currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
       if (api && typeof api.applyRoomEndTurn === 'function') {
@@ -525,6 +565,7 @@ ${roomLog.textContent}` : line;
     }
 
     if (data.type === 'battle_state_synced') {
+      clearActionResponseTimer();
       const api = window.REDVEIN_ROOM_API;
       currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
       if (api && typeof api.applyRoomStateSync === 'function') {
@@ -540,6 +581,7 @@ ${roomLog.textContent}` : line;
     }
 
     if (data.type === 'error') {
+      releasePendingUiLock();
       writeLog(`エラー: ${data.message || '不明なエラー'}`);
     }
   }
