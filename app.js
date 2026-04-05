@@ -148,6 +148,10 @@ let itemShowcaseMeta = null;
 let itemShowcaseEffect = null;
 let itemShowcaseHideTimer = null;
 
+let combatFxBoardSnapshot = null;
+let combatFxTurnSnapshot = null;
+let combatFxTimers = new Set();
+
 
 function injectActionGuideStyles() {
   if (document.getElementById('redveinActionGuideStyle')) return;
@@ -817,6 +821,308 @@ function showItemShowcase(card) {
   void root.offsetWidth;
   root.classList.add('rv-item-showcase-visible');
   hideItemShowcase(false);
+}
+
+
+function clearCombatFxTimers() {
+  combatFxTimers.forEach((timer) => clearTimeout(timer));
+  combatFxTimers.clear();
+}
+
+function rememberCombatFxTimer(timer) {
+  combatFxTimers.add(timer);
+  return timer;
+}
+
+function resetCombatFxTracking() {
+  clearCombatFxTimers();
+  combatFxBoardSnapshot = null;
+  combatFxTurnSnapshot = null;
+}
+
+function injectCombatFxStyles() {
+  if (document.getElementById('redveinCombatFxStyle')) return;
+  const style = document.createElement('style');
+  style.id = 'redveinCombatFxStyle';
+  style.textContent = `
+    .board-cell {
+      overflow: visible;
+    }
+    .board-cell .unit-card-visual {
+      transform-origin: center center;
+      will-change: transform, filter, opacity, box-shadow;
+    }
+    .board-cell.rv-fx-attacker-burst::after,
+    .board-cell.rv-fx-target-impact::after {
+      content: '';
+      position: absolute;
+      inset: -10%;
+      border-radius: 22px;
+      pointer-events: none;
+    }
+    .board-cell.rv-fx-attacker-burst::after {
+      border: 2px solid rgba(255, 224, 156, 0.85);
+      box-shadow: 0 0 28px rgba(255, 224, 156, 0.34), 0 0 54px rgba(255, 122, 86, 0.26);
+      animation: rvFxAttackerBurst 0.52s ease-out forwards;
+    }
+    .board-cell.rv-fx-target-impact::after {
+      background: radial-gradient(circle at center, rgba(255, 226, 166, 0.48), rgba(255, 74, 108, 0.26) 42%, rgba(255, 255, 255, 0) 72%);
+      box-shadow: 0 0 22px rgba(255, 84, 118, 0.28);
+      animation: rvFxTargetImpact 0.44s ease-out forwards;
+    }
+    .board-cell.rv-fx-target-hit .unit-card-visual {
+      animation: rvFxHitShake 0.46s cubic-bezier(.36,.07,.19,.97) both;
+      filter: saturate(1.06) brightness(1.08);
+    }
+    .board-cell .rv-fx-damage-pop {
+      position: absolute;
+      left: 50%;
+      top: 12%;
+      transform: translate(-50%, 0);
+      z-index: 6;
+      pointer-events: none;
+      font-size: 22px;
+      font-weight: 900;
+      letter-spacing: 0.02em;
+      color: #fff4f6;
+      text-shadow: 0 3px 18px rgba(0, 0, 0, 0.38), 0 0 16px rgba(255, 80, 114, 0.26);
+      animation: rvFxDamagePop 0.82s ease-out forwards;
+      white-space: nowrap;
+    }
+    .board-cell .rv-fx-damage-pop.rv-fx-damage-heavy {
+      font-size: 24px;
+      color: #ffe0e8;
+    }
+    .board-cell .rv-fx-defeat-ghost {
+      position: absolute;
+      inset: 8px;
+      z-index: 5;
+      pointer-events: none;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: linear-gradient(180deg, rgba(55, 18, 31, 0.92), rgba(17, 10, 16, 0.96));
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.34), 0 0 28px rgba(255, 88, 118, 0.16);
+      animation: rvFxDefeatGhost 0.72s ease-out forwards;
+    }
+    .board-cell .rv-fx-defeat-ghost img,
+    .board-cell .rv-fx-defeat-ghost .rv-fx-defeat-fallback {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+    .board-cell .rv-fx-defeat-ghost .rv-fx-defeat-fallback {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+      text-align: center;
+      color: #fff6f8;
+      font-weight: 900;
+      font-size: 18px;
+      line-height: 1.3;
+      background: radial-gradient(circle at 50% 18%, rgba(255, 124, 154, 0.26), rgba(0, 0, 0, 0.14) 44%), linear-gradient(180deg, rgba(93, 29, 46, 1), rgba(22, 11, 17, 1));
+    }
+    .board-cell .rv-fx-defeat-mark {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 7;
+      pointer-events: none;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(10, 6, 10, 0.72);
+      border: 1px solid rgba(255, 205, 154, 0.22);
+      color: #ffdcb0;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      animation: rvFxDefeatMark 0.76s ease-out forwards;
+      white-space: nowrap;
+    }
+    @keyframes rvFxAttackerBurst {
+      0% { opacity: 0; transform: scale(0.78); }
+      20% { opacity: 1; }
+      100% { opacity: 0; transform: scale(1.18); }
+    }
+    @keyframes rvFxTargetImpact {
+      0% { opacity: 0; transform: scale(0.7); }
+      18% { opacity: 1; }
+      100% { opacity: 0; transform: scale(1.22); }
+    }
+    @keyframes rvFxHitShake {
+      0% { transform: translate3d(0,0,0) scale(1); }
+      20% { transform: translate3d(-4px, 1px, 0) rotate(-1.1deg) scale(0.985); }
+      36% { transform: translate3d(4px, -1px, 0) rotate(1.1deg) scale(0.985); }
+      54% { transform: translate3d(-3px, 1px, 0) rotate(-0.7deg) scale(0.99); }
+      72% { transform: translate3d(2px, -1px, 0) rotate(0.5deg) scale(0.996); }
+      100% { transform: translate3d(0,0,0) scale(1); }
+    }
+    @keyframes rvFxDamagePop {
+      0% { opacity: 0; transform: translate(-50%, 8px) scale(0.7); }
+      18% { opacity: 1; transform: translate(-50%, -2px) scale(1.06); }
+      70% { opacity: 1; transform: translate(-50%, -18px) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -30px) scale(0.96); }
+    }
+    @keyframes rvFxDefeatGhost {
+      0% { opacity: 0.98; transform: scale(1); filter: saturate(1) blur(0); }
+      55% { opacity: 0.9; transform: scale(1.03); }
+      100% { opacity: 0; transform: scale(0.88); filter: saturate(0.3) blur(8px); }
+    }
+    @keyframes rvFxDefeatMark {
+      0% { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
+      20% { opacity: 1; transform: translate(-50%, -52%) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -66%) scale(0.96); }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function ensureCombatFxReady() {
+  if (!document?.head) return;
+  injectCombatFxStyles();
+}
+
+function captureBoardVisualSnapshot() {
+  return (matchState.board || []).map((unit, index) => {
+    if (!unit) return null;
+    const meta = cardMap.get(unit.cardId);
+    return {
+      index,
+      instanceId: unit.instanceId,
+      cardId: unit.cardId,
+      owner: unit.owner,
+      name: unit.name,
+      hp: Number(unit.currentHp || 0),
+      maxHp: Number(unit.maxHp || 0),
+      imagePath: getCardImagePath(meta) || '',
+    };
+  });
+}
+
+function captureTurnVisualSnapshot() {
+  return {
+    phase: matchState.phase,
+    currentPlayer: matchState.currentPlayer,
+    attackCount: Number(matchState.turnState?.attackCount || 0),
+    attackUnitId: matchState.turnState?.attackUnitId || null,
+    postAttackMoveUnitId: matchState.turnState?.postAttackMoveUnitId || null,
+    winner: matchState.winner || '',
+  };
+}
+
+function getBoardCellElement(index) {
+  return boardGrid?.querySelector(`.board-cell[data-board-index="${index}"]`) || null;
+}
+
+function pulseCellClass(index, className, duration = 520) {
+  const cell = getBoardCellElement(index);
+  if (!cell) return;
+  cell.classList.remove(className);
+  void cell.offsetWidth;
+  cell.classList.add(className);
+  rememberCombatFxTimer(setTimeout(() => {
+    cell.classList.remove(className);
+  }, duration));
+}
+
+function spawnDamagePopup(index, amount, options = {}) {
+  const cell = getBoardCellElement(index);
+  if (!cell) return;
+  const popup = document.createElement('div');
+  popup.className = 'rv-fx-damage-pop';
+  if (Number(amount) >= 3 || options.heavy) popup.classList.add('rv-fx-damage-heavy');
+  popup.textContent = options.label || `-${amount}`;
+  cell.appendChild(popup);
+  rememberCombatFxTimer(setTimeout(() => {
+    popup.remove();
+  }, 840));
+}
+
+function spawnDefeatGhost(index, entry) {
+  const cell = getBoardCellElement(index);
+  if (!cell || !entry) return;
+  const ghost = document.createElement('div');
+  ghost.className = 'rv-fx-defeat-ghost';
+  if (entry.imagePath) {
+    const img = document.createElement('img');
+    img.src = entry.imagePath;
+    img.alt = entry.name || '撃破ユニット';
+    img.loading = 'eager';
+    ghost.appendChild(img);
+  } else {
+    const fallback = document.createElement('div');
+    fallback.className = 'rv-fx-defeat-fallback';
+    fallback.textContent = entry.name || 'DEFEATED';
+    ghost.appendChild(fallback);
+  }
+  const mark = document.createElement('div');
+  mark.className = 'rv-fx-defeat-mark';
+  mark.textContent = '撃破';
+  cell.appendChild(ghost);
+  cell.appendChild(mark);
+  rememberCombatFxTimer(setTimeout(() => {
+    ghost.remove();
+    mark.remove();
+  }, 760));
+}
+
+function applyDamageFxAtIndex(index, amount, options = {}) {
+  pulseCellClass(index, 'rv-fx-target-impact', 440);
+  pulseCellClass(index, 'rv-fx-target-hit', 500);
+  const safeAmount = Math.max(1, Number(amount || 1));
+  spawnDamagePopup(index, safeAmount, options);
+}
+
+function findSnapshotIndexByUnitId(snapshot, unitId) {
+  if (!Array.isArray(snapshot) || !unitId) return -1;
+  return snapshot.findIndex((entry) => entry && entry.instanceId === unitId);
+}
+
+function applyCombatFxFromSnapshots(prevBoard, nextBoard, prevTurn, nextTurn) {
+  ensureCombatFxReady();
+  if (!Array.isArray(prevBoard) || !Array.isArray(nextBoard)) return;
+
+  const nextPositions = new Map();
+  nextBoard.forEach((entry, idx) => {
+    if (entry?.instanceId) nextPositions.set(entry.instanceId, idx);
+  });
+
+  const attackTriggered = !!(
+    prevTurn
+    && nextTurn
+    && nextTurn.phase === 'battle'
+    && prevTurn.phase === 'battle'
+    && nextTurn.currentPlayer === prevTurn.currentPlayer
+    && Number(nextTurn.attackCount || 0) > Number(prevTurn.attackCount || 0)
+    && nextTurn.attackUnitId
+  );
+  if (attackTriggered) {
+    const attackerIndex = findSnapshotIndexByUnitId(nextBoard, nextTurn.attackUnitId);
+    if (attackerIndex >= 0) pulseCellClass(attackerIndex, 'rv-fx-attacker-burst', 520);
+  }
+
+  prevBoard.forEach((prevEntry, index) => {
+    if (!prevEntry) return;
+    const nextEntry = nextBoard[index];
+
+    if (nextEntry && nextEntry.instanceId === prevEntry.instanceId) {
+      const hpLoss = Number(prevEntry.hp || 0) - Number(nextEntry.hp || 0);
+      if (hpLoss > 0) {
+        applyDamageFxAtIndex(index, hpLoss, { heavy: hpLoss >= 3 });
+      }
+      return;
+    }
+
+    const movedIndex = nextPositions.get(prevEntry.instanceId);
+    if (typeof movedIndex === 'number') return;
+
+    const vanishedAmount = Math.max(1, Number(prevEntry.hp || 1));
+    applyDamageFxAtIndex(index, vanishedAmount, { heavy: true, label: `-${vanishedAmount}` });
+    spawnDefeatGhost(index, prevEntry);
+  });
 }
 
 function loadSfxEnabled() {
@@ -3164,6 +3470,7 @@ function renderBoard() {
     const cell = document.createElement('button');
     cell.type = 'button';
     cell.className = 'board-cell';
+    cell.dataset.boardIndex = String(index);
     if (isPointZone(index)) cell.classList.add('point-zone');
     if (placeableCells.includes(index) || redeployCells.includes(index)) cell.classList.add('placeable');
     if (moveTargets.includes(index) || postAttackMoveTargets.includes(index)) cell.classList.add('move-target');
@@ -3441,6 +3748,10 @@ function renderMatchMeta() {
 }
 
 function renderMatchArea() {
+  const shouldAnimateCombatFx = matchState.phase === 'battle' || matchState.phase === 'finished';
+  const nextBoardSnapshot = shouldAnimateCombatFx ? captureBoardVisualSnapshot() : null;
+  const nextTurnSnapshot = shouldAnimateCombatFx ? captureTurnVisualSnapshot() : null;
+
   renderMatchMeta();
   renderPlayerPanels();
   renderBoard();
@@ -3448,6 +3759,12 @@ function renderMatchArea() {
   renderItemConfirmBox();
   renderActionConfirmBox();
   updateActionGuide();
+
+  if (shouldAnimateCombatFx && combatFxBoardSnapshot && combatFxTurnSnapshot) {
+    applyCombatFxFromSnapshots(combatFxBoardSnapshot, nextBoardSnapshot, combatFxTurnSnapshot, nextTurnSnapshot);
+  }
+  combatFxBoardSnapshot = nextBoardSnapshot;
+  combatFxTurnSnapshot = nextTurnSnapshot;
 }
 
 function beginTurn(playerKey) {
@@ -4092,6 +4409,7 @@ function startMatchFromDeckData(p1DeckInput, p2DeckInput, sourceLabel = 'テス�
     return false;
   }
 
+  resetCombatFxTracking();
   matchState = createEmptyMatchState();
   lastFinishedSfxMessage = '';
   matchState.active = true;
@@ -4140,6 +4458,7 @@ function startTestMatch() {
 
 function resetTestMatch() {
   hideItemShowcase(true);
+  resetCombatFxTracking();
   matchState = createEmptyMatchState();
   lastFinishedSfxMessage = '';
   renderMatchArea();
@@ -4459,4 +4778,5 @@ window.REDVEIN_ROOM_API = {
 setupSfx();
 ensureActionGuide();
 ensureItemShowcase();
+ensureCombatFxReady();
 loadCards();
