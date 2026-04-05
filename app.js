@@ -74,6 +74,8 @@ const player1FieldLogButton = document.getElementById('player1FieldLogButton');
 const player2FieldLogButton = document.getElementById('player2FieldLogButton');
 const player1Items = document.getElementById('player1Items');
 const player2Items = document.getElementById('player2Items');
+const player1ItemSlot = player1Items?.closest('.item-slot') || null;
+const player2ItemSlot = player2Items?.closest('.item-slot') || null;
 const player1Reserve = document.getElementById('player1Reserve');
 const player2Reserve = document.getElementById('player2Reserve');
 const player1Box = document.getElementById('player1Box');
@@ -5581,6 +5583,15 @@ function isItemWindowOpen() {
   return !!(matchState.turnState && matchState.turnState.itemWindowOpen);
 }
 
+function hasItemDecisionFocus() {
+  return matchState.phase === 'battle'
+    && isItemWindowOpen()
+    && !getSelectedItemCard()
+    && !getPendingAction()
+    && !getPendingRedeployCard()
+    && !getPostAttackMoveUnit();
+}
+
 function getSelectedItemCardId() {
   return matchState.turnState?.selectedItemCardId || null;
 }
@@ -5822,12 +5833,16 @@ function renderItems(playerKey, targetElement) {
   const canUseItemsNow = currentPlayersTurn && isItemWindowOpen() && !matchState.turnState.itemUsed;
   const compactMode = !canUseItemsNow;
   const selectedItemCardId = getSelectedItemCardId();
+  const decisionFocusActive = canUseItemsNow && !selectedItemCardId && hasItemDecisionFocus();
+
+  targetElement.classList.toggle('item-phase-decision-list', decisionFocusActive);
 
   for (const itemState of player.itemStates) {
     const card = cardMap.get(itemState.cardId);
     const row = document.createElement('div');
     row.className = `side-card-item with-image ${compactMode ? 'compact-item-row' : ''}`.trim();
     if (!compactMode && selectedItemCardId === itemState.cardId) row.classList.add('selected-side-card');
+    if (decisionFocusActive && !itemState.used) row.classList.add('item-phase-choice-card');
 
     const info = document.createElement('div');
     info.className = `side-card-info ${compactMode ? 'compact-item-info' : ''}`.trim();
@@ -5843,7 +5858,7 @@ function renderItems(playerKey, targetElement) {
       row.appendChild(usedBadge);
     } else if (!compactMode) {
       const button = document.createElement('button');
-      button.className = 'button secondary small';
+      button.className = `button secondary small ${decisionFocusActive ? 'item-phase-choice-button' : ''}`.trim();
       button.textContent = selectedItemCardId === itemState.cardId ? '選択中' : '使う';
       button.addEventListener('click', () => {
         if (itemState.used || !canUseItemsNow) return;
@@ -6246,6 +6261,24 @@ function renderMatchMeta() {
   updateSelectionInfo();
 }
 
+function updateItemDecisionFocus() {
+  const decisionFocusActive = hasItemDecisionFocus();
+  document.body.classList.toggle('rv-item-decision-active', decisionFocusActive);
+
+  const activePlayer = decisionFocusActive ? matchState.currentPlayer : null;
+  const slotMap = [
+    { player: 'player1', slot: player1ItemSlot, panel: actionPanelLeft, button: itemPhaseDoneButton },
+    { player: 'player2', slot: player2ItemSlot, panel: actionPanelRight, button: itemPhaseDoneButtonRightMirror || itemPhaseDoneButtonRight },
+  ];
+
+  slotMap.forEach(({ player, slot, panel, button }) => {
+    const isActive = decisionFocusActive && activePlayer === player;
+    slot?.classList.toggle('item-slot-decision-focus', isActive);
+    panel?.classList.toggle('item-phase-decision-panel', isActive);
+    button?.classList.toggle('item-phase-skip-highlight', isActive);
+  });
+}
+
 function renderMatchArea() {
   const shouldAnimateCombatFx = matchState.phase === 'battle' || matchState.phase === 'finished';
   const nextBoardSnapshot = shouldAnimateCombatFx ? captureBoardVisualSnapshot() : null;
@@ -6253,6 +6286,7 @@ function renderMatchArea() {
 
   renderMatchMeta();
   renderPlayerPanels();
+  updateItemDecisionFocus();
   renderBoard();
   renderBattleLog();
   renderItemConfirmBox();

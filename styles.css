@@ -1268,6 +1268,157 @@ body.log-hidden .split-layout {
   background: rgba(255,255,255,0.05);
 }
 
+/* --- item phase spotlight --- */
+body.rv-item-decision-active .board-center-area,
+body.rv-item-decision-active .score-bar,
+body.rv-item-decision-active .board-bottom-row,
+body.rv-item-decision-active .battle-side-panel .reserve-slot,
+body.rv-item-decision-active .battle-side-panel .field-slot {
+  opacity: 0.62;
+  filter: saturate(0.75) brightness(0.84);
+  transition: opacity 0.22s ease, filter 0.22s ease, transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+body.rv-item-decision-active .player-box {
+  transition: opacity 0.22s ease, filter 0.22s ease, transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+body.rv-item-decision-active .player-box .item-slot-decision-focus,
+body.rv-item-decision-active .item-phase-decision-panel {
+  opacity: 1;
+  filter: none;
+}
+
+.item-slot-decision-focus {
+  position: relative;
+  z-index: 9;
+  transform: scale(1.05);
+  transform-origin: center top;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(82, 18, 33, 0.72), rgba(33, 13, 22, 0.9));
+  box-shadow:
+    0 0 0 1px rgba(255, 188, 108, 0.4) inset,
+    0 18px 38px rgba(0, 0, 0, 0.28),
+    0 0 28px rgba(201, 71, 98, 0.22);
+  padding: 10px;
+}
+
+.item-slot-decision-focus .field-slot-title {
+  color: #ffe1b3;
+  letter-spacing: 0.04em;
+}
+
+.item-slot-decision-focus::after {
+  content: 'アイテムを選ぶ';
+  position: absolute;
+  top: -12px;
+  right: 10px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #fff3dc;
+  background: linear-gradient(135deg, rgba(195, 61, 77, 0.96), rgba(124, 32, 57, 0.96));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+}
+
+.item-phase-decision-list {
+  display: grid;
+  gap: 12px;
+}
+
+.item-phase-decision-list .side-card-item {
+  min-height: 96px;
+}
+
+.item-phase-choice-card {
+  border-color: rgba(255, 196, 118, 0.7);
+  box-shadow:
+    0 0 0 2px rgba(255, 196, 118, 0.16),
+    0 0 22px rgba(255, 174, 82, 0.14);
+  animation: itemDecisionPulse 1.45s ease-in-out infinite;
+}
+
+.item-phase-choice-card .mini-card-image {
+  width: 54px;
+  height: 74px;
+  flex-basis: 54px;
+}
+
+.item-phase-choice-card .side-card-title {
+  font-size: 16px;
+}
+
+.item-phase-choice-card .side-card-meta {
+  font-size: 13px;
+}
+
+.item-phase-choice-button {
+  min-height: 44px;
+  padding-inline: 16px;
+  font-size: 15px;
+  font-weight: 800;
+  box-shadow: 0 0 0 1px rgba(255, 208, 134, 0.2) inset;
+}
+
+.item-phase-decision-panel {
+  position: relative;
+  z-index: 8;
+  transform: scale(1.03);
+  transform-origin: center top;
+  box-shadow:
+    0 0 0 1px rgba(255, 190, 112, 0.28) inset,
+    0 18px 40px rgba(0, 0, 0, 0.26),
+    0 0 24px rgba(215, 163, 72, 0.14);
+}
+
+.item-phase-decision-panel .info-box {
+  border-color: rgba(255, 196, 118, 0.42);
+  background: linear-gradient(180deg, rgba(68, 19, 30, 0.78), rgba(26, 14, 20, 0.92));
+}
+
+.item-phase-skip-highlight {
+  min-height: 54px;
+  font-size: 16px;
+  font-weight: 800;
+  box-shadow:
+    0 0 0 1px rgba(255, 202, 126, 0.28) inset,
+    0 0 20px rgba(215, 163, 72, 0.16);
+  animation: itemDecisionPulse 1.45s ease-in-out infinite;
+}
+
+@keyframes itemDecisionPulse {
+  0%, 100% {
+    transform: translateY(0);
+    box-shadow:
+      0 0 0 2px rgba(255, 201, 122, 0.14),
+      0 0 14px rgba(255, 164, 77, 0.12);
+  }
+  50% {
+    transform: translateY(-1px);
+    box-shadow:
+      0 0 0 2px rgba(255, 218, 152, 0.28),
+      0 0 26px rgba(255, 174, 82, 0.22);
+  }
+}
+
+@media (max-width: 1180px) {
+  body.rv-item-decision-active .board-center-area,
+  body.rv-item-decision-active .score-bar,
+  body.rv-item-decision-active .board-bottom-row,
+  body.rv-item-decision-active .battle-side-panel .reserve-slot,
+  body.rv-item-decision-active .battle-side-panel .field-slot {
+    opacity: 1;
+    filter: none;
+  }
+
+  .item-slot-decision-focus,
+  .item-phase-decision-panel {
+    transform: none;
+  }
+}
+
 
 /* --- item confirm + setup guide upgrade --- */
 .item-confirm-box {
