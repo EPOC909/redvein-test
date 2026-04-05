@@ -382,6 +382,34 @@ function sanitizeDeckPayload(deck) {
   };
 }
 
+
+function collectDeckCardIds(deck) {
+  if (!deck || typeof deck !== 'object') return [];
+  const ids = [];
+  for (const key of ['battle', 'item', 'field']) {
+    const list = Array.isArray(deck[key]) ? deck[key] : [];
+    for (const rawId of list) {
+      const id = String(rawId || '').trim();
+      if (id) ids.push(id);
+    }
+  }
+  return ids;
+}
+
+function collectCardsForDecks(...decks) {
+  const seen = new Set();
+  const result = [];
+  for (const deck of decks) {
+    for (const id of collectDeckCardIds(deck)) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const card = cardMap.get(id);
+      if (card) result.push(card);
+    }
+  }
+  return result;
+}
+
 function validateDeckPayload(deck, saveKey = '', unlockTokens = []) {
   if (!deck) return false;
   if (deck.battle.length !== 5 || deck.item.length !== 4 || deck.field.length !== 1) return false;
@@ -480,6 +508,7 @@ function makeGameStartedPayload(room) {
     roomState: room.roomState,
     p1Deck: room.game.p1Deck,
     p2Deck: room.game.p2Deck,
+    deckCards: collectCardsForDecks(room.game.p1Deck, room.game.p2Deck),
     phase: room.game.phase,
     currentPlayer: room.game.currentPlayer,
     round: room.game.round,

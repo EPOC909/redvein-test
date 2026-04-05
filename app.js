@@ -155,6 +155,7 @@ installRightItemPhaseDoneButtonMirror();
 
 let allCards = [];
 let cardMap = new Map();
+let roomImportedCardMap = new Map();
 let ownedCardIds = new Set();
 let savedDecks = [];
 let currentDeck = { name: '', battle: [], item: [], field: [] };
@@ -3931,6 +3932,39 @@ function normalizeUnlockTokens(value) {
   return [...new Set(value.map((entry) => String(entry || '').trim()).filter(Boolean))].slice(0, 24);
 }
 
+
+function normalizeRoomImportedCards(value) {
+  return Array.isArray(value)
+    ? value.filter((card) => card && typeof card === 'object' && String(card.card_id || '').trim())
+        .map((card) => ({ ...card, card_id: String(card.card_id).trim() }))
+    : [];
+}
+
+function applyRoomImportedCardsToCardMap() {
+  if (!(cardMap instanceof Map)) cardMap = new Map();
+  roomImportedCardMap.forEach((card, id) => {
+    if (card && id) cardMap.set(id, card);
+  });
+}
+
+function importRoomDeckCards(cards) {
+  const normalized = normalizeRoomImportedCards(cards);
+  let changed = false;
+  normalized.forEach((card) => {
+    const id = String(card.card_id || '').trim();
+    if (!id) return;
+    const prev = roomImportedCardMap.get(id);
+    const nextSerialized = JSON.stringify(card);
+    const prevSerialized = prev ? JSON.stringify(prev) : '';
+    if (prevSerialized !== nextSerialized) {
+      roomImportedCardMap.set(id, card);
+      changed = true;
+    }
+  });
+  applyRoomImportedCardsToCardMap();
+  return changed;
+}
+
 function loadUnlockSaveKey() {
   const raw = String(localStorage.getItem(UNLOCK_SAVE_KEY_STORAGE_KEY) || '').trim();
   if (/^[A-Za-z0-9_-]{4,40}$/.test(raw)) return raw;
@@ -4047,10 +4081,6 @@ function ensureUnlockPanel() {
       <button id="unlockRedeemButton" class="button primary" type="button">解放する</button>
     </div>
     <div id="unlockStatusBox" class="unlock-status-box info"></div>
-    <div class="unlock-note-list">
-      <div>・この試作版は、<strong>保存キー + 解放コード</strong> で使います。</div>
-      <div>・同じブラウザなら、解放済みの証明はそのまま残ります。</div>
-    </div>
     <div class="unlock-owned-block">
       <div class="unlock-owned-title">解放済みの特別カード</div>
       <div id="unlockOwnedList" class="unlock-owned-list"></div>
@@ -7125,6 +7155,7 @@ async function loadCards() {
 
     allCards = data;
     cardMap = new Map(allCards.map((card) => [card.card_id, card]));
+    applyRoomImportedCardsToCardMap();
     ownedCardIds = loadOwnedCards();
     ensureUnlockedCardsOwned();
     savedDecks = loadSavedDecks();
@@ -7448,6 +7479,7 @@ window.REDVEIN_ROOM_API = {
   getCombatFxHoldMsRemaining,
   notifyRoomRequestError,
   getUnlockAuthPayload,
+  importRoomDeckCards,
 };
 
 unlockSaveKey = loadUnlockSaveKey();

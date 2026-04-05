@@ -790,6 +790,9 @@ ${roomLog.textContent}` : line;
       writeLog('盤面開始APIが見つかりません。');
       return;
     }
+    if (typeof api.importRoomDeckCards === 'function' && Array.isArray(data.deckCards) && data.deckCards.length) {
+      api.importRoomDeckCards(data.deckCards);
+    }
     configureRoomSync();
     const ok = api.startMatchFromDeckData(data.p1Deck, data.p2Deck, 'ルーム対戦');
     if (ok) {
