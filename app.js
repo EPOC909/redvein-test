@@ -7958,9 +7958,44 @@ function renderFieldLog(playerKey) {
   addLog(`${PLAYER_LABEL[playerKey]}: 環境カード「${field.card_name}」の処理を記録しました`);
 }
 
+async function loadCardsFromStaticJson() {
+  const fallbackPaths = ['./data/redvein_cards.json', './redvein_cards.json'];
+  let lastError = null;
+
+  for (const path of fallbackPaths) {
+    try {
+      const response = await fetch(path, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`静的カードJSONの取得に失敗しました: ${response.status}`);
+      const data = await response.json();
+      if (!Array.isArray(data)) throw new Error('静的カードJSONの形式が不正です。');
+      return data;
+    } catch (error) {
+      lastError = error;
+      console.error(error);
+    }
+  }
+
+  throw lastError || new Error('静的カードJSONの読み込みに失敗しました。');
+}
+
+function applyLoadedCards(data) {
+  allCards = Array.isArray(data) ? data : [];
+  cardMap = new Map(allCards.map((card) => [card.card_id, card]));
+  applyRoomImportedCardsToCardMap();
+  ownedCardIds = loadOwnedCards();
+  ensureUnlockedCardsOwned();
+  savedDecks = loadSavedDecks();
+  renderSavedDeckOptions();
+  renderDeckPanel();
+  renderCards();
+  renderMatchArea();
+  renderUnlockPanel();
+}
+
 async function loadCards() {
+  clearError();
+
   try {
-    clearError();
     const response = await fetch(CARDS_API_PATH, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -7973,19 +8008,18 @@ async function loadCards() {
     const data = Array.isArray(payload?.cards) ? payload.cards : [];
     if (!Array.isArray(data)) throw new Error('カード一覧の形式が不正です。');
 
-    allCards = data;
-    cardMap = new Map(allCards.map((card) => [card.card_id, card]));
-    applyRoomImportedCardsToCardMap();
-    ownedCardIds = loadOwnedCards();
-    ensureUnlockedCardsOwned();
-    savedDecks = loadSavedDecks();
-    renderSavedDeckOptions();
-    renderDeckPanel();
-    renderCards();
-    renderMatchArea();
-    renderUnlockPanel();
+    applyLoadedCards(data);
+    return;
   } catch (error) {
     console.error(error);
+  }
+
+  try {
+    const fallbackData = await loadCardsFromStaticJson();
+    applyLoadedCards(fallbackData);
+    showError('カードAPIの読み込みに失敗したため、通常カードのみのフォールバック表示に切り替えました。特別カードの反映はサーバー更新後に再読み込みしてください。');
+  } catch (fallbackError) {
+    console.error(fallbackError);
     showError('カード一覧または解放カードの読み込みで問題がありました。サーバー更新後に再読み込みしてください。');
   }
 }

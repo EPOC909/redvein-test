@@ -7,7 +7,159 @@ const { WebSocketServer } = require('ws');
 const HOST = '0.0.0.0';
 const PORT = process.env.PORT || 3000;
 const ROOT_DIR = __dirname;
-const CARD_JSON_PATH = path.join(ROOT_DIR, 'data', 'redvein_cards.json');
+const CARD_JSON_CANDIDATES = [
+  path.join(ROOT_DIR, 'data', 'redvein_cards.json'),
+  path.join(ROOT_DIR, 'redvein_cards.json'),
+];
+const UNLOCK_TOKEN_SECRET = process.env.REDVEIN_UNLOCK_SECRET || 'redvein-unlock-secret-v18';
+
+const SPECIAL_CARDS = [
+  {
+    card_id: 'SP-001',
+    card_name: '禁書・魂断の頁',
+    type: 'item',
+    rarity: 'SP',
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: '敵1体を破壊する。この効果で破壊されたユニットは復活できない。',
+    effect_type: 'destroy_single_no_revive',
+    image_file: 'SP-001.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-002',
+    card_name: '血月の杯',
+    type: 'item',
+    rarity: 'SP',
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: '味方1体のHPを3回復し、このターンATKを+1する。',
+    effect_type: 'heal_single_3_atk_up_turn_1',
+    image_file: 'SP-002.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-003',
+    card_name: '王冠の勅命',
+    type: 'item',
+    rarity: 'SP',
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: '味方1体はこの手番、追加で1回移動できる。',
+    effect_type: 'royal_command_single',
+    image_file: 'SP-003.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-004',
+    card_name: '不滅の黒騎兵',
+    type: 'battle',
+    rarity: 'SP',
+    hp: 5,
+    atk: 2,
+    move: 2,
+    effect_text: '倒されるダメージを受けた時、1度だけHP1で耐える。',
+    effect_type: 'survive_once_at_1',
+    image_file: 'SP-004.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-005',
+    card_name: '断罪の聖騎士',
+    type: 'battle',
+    rarity: 'SP',
+    hp: 5,
+    atk: 2,
+    move: 1,
+    effect_text: '自分より攻撃力の高い敵から受ける戦闘ダメージを-1する。',
+    effect_type: 'reduce_damage_from_stronger_enemy_1',
+    image_file: 'SP-005.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-006',
+    card_name: '紅蓮の魔装兵',
+    type: 'battle',
+    rarity: 'SP',
+    hp: 4,
+    atk: 3,
+    move: 1,
+    effect_text: '攻撃時、対象に隣接する敵1体にも1ダメージを与える。',
+    effect_type: 'splash_adjacent_enemy_1_on_attack',
+    image_file: 'SP-006.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-007',
+    card_name: '月影の処刑人',
+    type: 'battle',
+    rarity: 'SP',
+    hp: 2,
+    atk: 4,
+    move: 2,
+    effect_text: '攻撃後、1マス移動できる。',
+    effect_type: 'move_after_attack_1',
+    image_file: 'SP-007.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-008',
+    card_name: '血月',
+    type: 'field',
+    rarity: 'SP',
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: '味方は中央9マスで戦う間、ATK+2。',
+    effect_type: 'field_center_ally_atk_plus_2',
+    image_file: 'SP-008.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-009',
+    card_name: '王の玉座',
+    type: 'field',
+    rarity: 'SP',
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: '中央9マスにいる味方は受けるダメージ-1、ATK+1。',
+    effect_type: 'field_center_ally_guard_1_atk_plus_1',
+    image_file: 'SP-009.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-010',
+    card_name: '真祖血姫 ヴェイン',
+    type: 'battle',
+    rarity: 'SP',
+    hp: 6,
+    atk: 3,
+    move: 2,
+    effect_text: '敵を破壊するたび、自身のHPを1回復する。HPが満タンならATK+1。',
+    effect_type: 'on_kill_heal_1_else_atk_plus_1',
+    image_file: 'SP-010.png',
+    unlock_only: true,
+  },
+];
+
+const UNLOCK_CODE_DEFS = [
+  { code: 'SOUL-PAGE-001', normalizedCode: 'SOULPAGE001', label: '禁書・魂断の頁', cardIds: ['SP-001'] },
+  { code: 'BLOOD-CUP-002', normalizedCode: 'BLOODCUP002', label: '血月の杯', cardIds: ['SP-002'] },
+  { code: 'ROYAL-ORDER-003', normalizedCode: 'ROYALORDER003', label: '王冠の勅命', cardIds: ['SP-003'] },
+  { code: 'BLACK-KNIGHT-004', normalizedCode: 'BLACKKNIGHT004', label: '不滅の黒騎兵', cardIds: ['SP-004'] },
+  { code: 'JUDGEMENT-005', normalizedCode: 'JUDGEMENT005', label: '断罪の聖騎士', cardIds: ['SP-005'] },
+  { code: 'CRIMSON-006', normalizedCode: 'CRIMSON006', label: '紅蓮の魔装兵', cardIds: ['SP-006'] },
+  { code: 'MOONSHADOW-007', normalizedCode: 'MOONSHADOW007', label: '月影の処刑人', cardIds: ['SP-007'] },
+  { code: 'BLOOD-MOON-008', normalizedCode: 'BLOODMOON008', label: '血月', cardIds: ['SP-008'] },
+  { code: 'THRONE-009', normalizedCode: 'THRONE009', label: '王の玉座', cardIds: ['SP-009'] },
+  { code: 'TRUE-VEIN-010', normalizedCode: 'TRUEVEIN010', label: '真祖血姫 ヴェイン', cardIds: ['SP-010'] },
+];
+
+const UNLOCK_CODE_MAP = new Map(UNLOCK_CODE_DEFS.map((entry) => [entry.normalizedCode, entry]));
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -20,11 +172,15 @@ const MIME_TYPES = {
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.txt': 'text/plain; charset=utf-8',
+  '.mp3': 'audio/mpeg',
 };
 
 const rooms = new Map();
-const cards = loadCards();
+const baseCards = loadCards();
+const cards = [...baseCards, ...SPECIAL_CARDS];
 const cardMap = new Map(cards.map((card) => [card.card_id, card]));
+const SPECIAL_CARD_IDS = new Set(SPECIAL_CARDS.map((card) => card.card_id));
+const BASE_CARD_IDS = new Set(baseCards.map((card) => card.card_id));
 const validCardIds = new Set(cards.map((card) => card.card_id));
 const SETUP_SEQUENCE = [
   { player: 'player1', count: 3 },
@@ -38,14 +194,160 @@ const DUPLICATE_WINDOW_MS = 700;
 const RECONNECT_GRACE_MS = 5 * 60 * 1000;
 
 function loadCards() {
-  try {
-    const raw = fs.readFileSync(CARD_JSON_PATH, 'utf-8');
-    const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
-  } catch (error) {
-    console.error('カードJSONの読み込みに失敗しました。', error);
-    return [];
+  let lastError = null;
+
+  for (const candidatePath of CARD_JSON_CANDIDATES) {
+    try {
+      if (!fs.existsSync(candidatePath)) continue;
+      const raw = fs.readFileSync(candidatePath, 'utf-8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) {
+        console.log(`カードJSONを読み込みました: ${candidatePath}`);
+        return data;
+      }
+      lastError = new Error(`カードJSONの形式が不正です: ${candidatePath}`);
+    } catch (error) {
+      lastError = error;
+    }
   }
+
+  console.error('カードJSONの読み込みに失敗しました。', lastError || new Error('card json not found'));
+  return [];
+}
+
+
+function normalizeSaveKey(value) {
+  return String(value || '').trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
+}
+
+function normalizeUnlockCode(value) {
+  return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 1024 * 128) {
+        reject(new Error('payload too large'));
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      if (!raw) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(raw));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function base64UrlEncode(input) {
+  return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlDecode(input) {
+  const normalized = String(input || '').replace(/-/g, '+').replace(/_/g, '/');
+  const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
+  return Buffer.from(normalized + padding, 'base64').toString('utf-8');
+}
+
+function signUnlockBody(encodedBody) {
+  return crypto.createHmac('sha256', UNLOCK_TOKEN_SECRET).update(encodedBody).digest('base64url');
+}
+
+function issueUnlockToken(saveKey, cardIds) {
+  const normalizedSaveKey = normalizeSaveKey(saveKey);
+  const ids = [...new Set((Array.isArray(cardIds) ? cardIds : []).map(String).filter((id) => SPECIAL_CARD_IDS.has(id)))].sort();
+  const payload = {
+    v: 1,
+    saveKey: normalizedSaveKey,
+    cardIds: ids,
+  };
+  const encodedBody = base64UrlEncode(JSON.stringify(payload));
+  const signature = signUnlockBody(encodedBody);
+  return `${encodedBody}.${signature}`;
+}
+
+function verifyUnlockToken(token, saveKey = '') {
+  const source = String(token || '').trim();
+  if (!source.includes('.')) return null;
+  const [encodedBody, signature] = source.split('.');
+  if (!encodedBody || !signature) return null;
+  const expected = signUnlockBody(encodedBody);
+  if (signature !== expected) return null;
+  try {
+    const payload = JSON.parse(base64UrlDecode(encodedBody));
+    const payloadSaveKey = normalizeSaveKey(payload?.saveKey || '');
+    const expectedSaveKey = normalizeSaveKey(saveKey || payloadSaveKey);
+    if (!payloadSaveKey || payloadSaveKey !== expectedSaveKey) return null;
+    const cardIds = [...new Set((Array.isArray(payload?.cardIds) ? payload.cardIds : []).map(String).filter((id) => SPECIAL_CARD_IDS.has(id)))];
+    if (!cardIds.length) return null;
+    return {
+      saveKey: payloadSaveKey,
+      cardIds,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function sanitizeUnlockTokens(tokens) {
+  if (!Array.isArray(tokens)) return [];
+  const deduped = [];
+  const seen = new Set();
+  for (const token of tokens) {
+    const value = String(token || '').trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    deduped.push(value);
+    if (deduped.length >= 24) break;
+  }
+  return deduped;
+}
+
+function collectUnlockedCardIds(saveKey, unlockTokens) {
+  const ids = new Set();
+  for (const token of sanitizeUnlockTokens(unlockTokens)) {
+    const verified = verifyUnlockToken(token, saveKey);
+    if (!verified) continue;
+    verified.cardIds.forEach((id) => ids.add(id));
+  }
+  return ids;
+}
+
+function buildCatalogForSaveKey(saveKey, unlockTokens) {
+  const unlockedCardIds = collectUnlockedCardIds(saveKey, unlockTokens);
+  const visibleCards = [
+    ...baseCards,
+    ...SPECIAL_CARDS.filter((card) => unlockedCardIds.has(card.card_id)),
+  ];
+  return {
+    cards: visibleCards,
+    unlockedCardIds: [...unlockedCardIds],
+  };
+}
+
+function sanitizeUnlockAuth(data) {
+  return {
+    saveKey: normalizeSaveKey(data?.saveKey || ''),
+    unlockTokens: sanitizeUnlockTokens(data?.unlockTokens),
+  };
+}
+
+function sendJson(res, statusCode, payload) {
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.end(JSON.stringify(payload));
 }
 
 function send(ws, payload) {
@@ -60,6 +362,17 @@ function makeRoomId() {
   return result;
 }
 
+function createControlRequests() {
+  return {
+    rematch: { p1: false, p2: false },
+    reset: { p1: false, p2: false },
+  };
+}
+
+function clearRoomControlRequests(room) {
+  room.controlRequests = createControlRequests();
+}
+
 function createEmptyRoom(roomId) {
   return {
     roomId,
@@ -68,6 +381,7 @@ function createEmptyRoom(roomId) {
     p2: null,
     spectator: null,
     game: null,
+    controlRequests: createControlRequests(),
     updatedAt: Date.now(),
   };
 }
@@ -82,11 +396,44 @@ function sanitizeDeckPayload(deck) {
   };
 }
 
-function validateDeckPayload(deck) {
+
+function collectDeckCardIds(deck) {
+  if (!deck || typeof deck !== 'object') return [];
+  const ids = [];
+  for (const key of ['battle', 'item', 'field']) {
+    const list = Array.isArray(deck[key]) ? deck[key] : [];
+    for (const rawId of list) {
+      const id = String(rawId || '').trim();
+      if (id) ids.push(id);
+    }
+  }
+  return ids;
+}
+
+function collectCardsForDecks(...decks) {
+  const seen = new Set();
+  const result = [];
+  for (const deck of decks) {
+    for (const id of collectDeckCardIds(deck)) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const card = cardMap.get(id);
+      if (card) result.push(card);
+    }
+  }
+  return result;
+}
+
+function validateDeckPayload(deck, saveKey = '', unlockTokens = []) {
   if (!deck) return false;
   if (deck.battle.length !== 5 || deck.item.length !== 4 || deck.field.length !== 1) return false;
   const ids = [...deck.battle, ...deck.item, ...deck.field];
-  return ids.every((id) => validCardIds.has(id));
+  const unlockedCardIds = collectUnlockedCardIds(saveKey, unlockTokens);
+  return ids.every((id) => {
+    if (BASE_CARD_IDS.has(id)) return true;
+    if (SPECIAL_CARD_IDS.has(id)) return unlockedCardIds.has(id);
+    return false;
+  });
 }
 
 function participantSnapshot(slot) {
@@ -110,6 +457,20 @@ function computeRoomState(room) {
   return 'waiting';
 }
 
+function serializeControlRequests(room) {
+  const source = room?.controlRequests || createControlRequests();
+  return {
+    rematch: {
+      p1: !!source.rematch?.p1,
+      p2: !!source.rematch?.p2,
+    },
+    reset: {
+      p1: !!source.reset?.p1,
+      p2: !!source.reset?.p2,
+    },
+  };
+}
+
 function roomSnapshot(room, role) {
   return {
     type: 'room_snapshot',
@@ -119,6 +480,7 @@ function roomSnapshot(room, role) {
     p1: participantSnapshot(room.p1),
     p2: participantSnapshot(room.p2),
     spectator: participantSnapshot(room.spectator),
+    controlRequests: serializeControlRequests(room),
   };
 }
 
@@ -133,6 +495,25 @@ function broadcastRoom(room, noticeMessage = '') {
   });
 }
 
+function startRoomGameRound(room, startNotice = '') {
+  if (!room || !room.p1 || !room.p2) return { ok: false, message: 'P1 と P2 が揃ってから開始してください。' };
+  if (!validateDeckPayload(room.p1.deckPayload, room.p1.saveKey, room.p1.unlockTokens) || !validateDeckPayload(room.p2.deckPayload, room.p2.saveKey, room.p2.unlockTokens)) {
+    return { ok: false, message: 'どちらかのデッキが不正です。入り直してください。' };
+  }
+  clearRoomControlRequests(room);
+  room.game = createInitialGameState(room);
+  room.roomState = computeRoomState(room);
+  const payload = makeGameStartedPayload(room);
+  [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([role, slot]) => {
+    if (slot?.ws) {
+      send(slot.ws, payload);
+      send(slot.ws, roomSnapshot(room, role));
+      if (startNotice) send(slot.ws, { type: 'server_notice', message: startNotice });
+    }
+  });
+  return { ok: true };
+}
+
 function makeGameStartedPayload(room) {
   if (!room.game) return null;
   return {
@@ -141,6 +522,7 @@ function makeGameStartedPayload(room) {
     roomState: room.roomState,
     p1Deck: room.game.p1Deck,
     p2Deck: room.game.p2Deck,
+    deckCards: collectCardsForDecks(room.game.p1Deck, room.game.p2Deck),
     phase: room.game.phase,
     currentPlayer: room.game.currentPlayer,
     round: room.game.round,
@@ -158,6 +540,8 @@ function attachParticipant(room, role, data, ws) {
     displayName: data.displayName || '名無しプレイヤー',
     deckName: data.deckName || deckPayload?.name || 'デッキ未選択',
     deckPayload,
+    saveKey: normalizeSaveKey(data.saveKey || ''),
+    unlockTokens: sanitizeUnlockTokens(data.unlockTokens),
     reconnectToken,
     ws,
     disconnectedAt: 0,
@@ -219,6 +603,7 @@ function createUnitState(cardId, owner, forcedInstanceId = '') {
     singleUseDamageReduction: 0,
     guardBlockUsed: false,
     negateDamageUsed: false,
+    surviveOnceUsed: false,
   };
 }
 
@@ -538,13 +923,16 @@ function getRequiredItemTargetType(card) {
   switch (card?.effect_type) {
     case 'heal_single_2':
     case 'full_heal_single':
+    case 'heal_single_3_atk_up_turn_1':
     case 'buff_move_atk_turn_1':
     case 'shield_single_2_once':
     case 'move_twice_single':
+    case 'royal_command_single':
       return 'ally';
     case 'damage_single_1':
     case 'damage_single_2':
     case 'destroy_single':
+    case 'destroy_single_no_revive':
     case 'disable_attack_next_round':
     case 'stun_single_1_turn':
       return 'enemy';
@@ -556,7 +944,7 @@ function getRequiredItemTargetType(card) {
 }
 
 function isOffensiveItem(card) {
-  return ['damage_single_1', 'damage_single_2', 'damage_aoe_target_radius_1', 'disable_attack_next_round', 'stun_single_1_turn', 'destroy_single'].includes(card?.effect_type);
+  return ['damage_single_1', 'damage_single_2', 'damage_aoe_target_radius_1', 'disable_attack_next_round', 'stun_single_1_turn', 'destroy_single', 'destroy_single_no_revive'].includes(card?.effect_type);
 }
 
 function validateItemTarget(game, playerKey, card, targetIndex) {
@@ -593,6 +981,23 @@ function applyServerSideItemEffects(game, playerKey, cardId, targetIndex) {
       if (!targetUnit || targetUnit.owner !== playerKey) return;
       game.turnState.acceleratedUnitId = targetUnit.instanceId;
       game.turnState.acceleratedMovesRemaining = 2 + effectBoost;
+      break;
+    }
+    case 'heal_single_2': {
+      if (!targetUnit || targetUnit.owner !== playerKey) return;
+      targetUnit.currentHp = Math.min(targetUnit.maxHp, Number(targetUnit.currentHp || 0) + 2);
+      break;
+    }
+    case 'heal_single_3_atk_up_turn_1': {
+      if (!targetUnit || targetUnit.owner !== playerKey) return;
+      targetUnit.currentHp = Math.min(targetUnit.maxHp, Number(targetUnit.currentHp || 0) + 3);
+      targetUnit.tempAtkBuff = Number(targetUnit.tempAtkBuff || 0) + 1;
+      break;
+    }
+    case 'royal_command_single': {
+      if (!targetUnit || targetUnit.owner !== playerKey) return;
+      game.turnState.acceleratedUnitId = targetUnit.instanceId;
+      game.turnState.acceleratedMovesRemaining = Math.max(Number(game.turnState.acceleratedMovesRemaining || 0), 1);
       break;
     }
     case 'disable_attack_next_round': {
@@ -644,6 +1049,7 @@ function sanitizeBoardSnapshot(board) {
       singleUseDamageReduction: Math.max(0, Number(cell.singleUseDamageReduction || 0)),
       guardBlockUsed: !!cell.guardBlockUsed,
       negateDamageUsed: !!cell.negateDamageUsed,
+      surviveOnceUsed: !!cell.surviveOnceUsed,
     };
   });
 }
@@ -757,15 +1163,16 @@ function assertRoomAndMeta(roomId, ws) {
 
 function handleCreateRoom(data, ws) {
   const deckPayload = sanitizeDeckPayload(data.deckPayload);
-  if (!validateDeckPayload(deckPayload)) {
-    send(ws, { type: 'error', message: '有効な保存済みデッキを選んでからルーム作成してください。' });
+  const unlockAuth = sanitizeUnlockAuth(data);
+  if (!validateDeckPayload(deckPayload, unlockAuth.saveKey, unlockAuth.unlockTokens)) {
+    send(ws, { type: 'error', message: '有効な保存済みデッキを選んでからルーム作成してください。特別カードを含む場合は先に解放してください。' });
     return;
   }
   let roomId = makeRoomId();
   while (rooms.has(roomId)) roomId = makeRoomId();
   const room = createEmptyRoom(roomId);
   rooms.set(roomId, room);
-  attachParticipant(room, 'p1', { ...data, deckPayload }, ws);
+  attachParticipant(room, 'p1', { ...data, deckPayload, ...unlockAuth }, ws);
 }
 
 function handleJoinRoom(data, ws, asSpectator = false) {
@@ -775,13 +1182,14 @@ function handleJoinRoom(data, ws, asSpectator = false) {
     send(ws, { type: 'error', message: 'そのルームは見つかりません。' });
     return;
   }
+  const unlockAuth = sanitizeUnlockAuth(data);
   if (!asSpectator) {
     const deckPayload = sanitizeDeckPayload(data.deckPayload);
-    if (!validateDeckPayload(deckPayload)) {
-      send(ws, { type: 'error', message: '有効な保存済みデッキを選んでからプレイヤー参加してください。' });
+    if (!validateDeckPayload(deckPayload, unlockAuth.saveKey, unlockAuth.unlockTokens)) {
+      send(ws, { type: 'error', message: '有効な保存済みデッキを選んでからプレイヤー参加してください。特別カードを含む場合は先に解放してください。' });
       return;
     }
-    data = { ...data, deckPayload };
+    data = { ...data, deckPayload, ...unlockAuth };
   }
   let role = null;
   if (asSpectator) role = room.spectator ? null : 'spectator';
@@ -847,24 +1255,10 @@ function handleStartGame(data, ws) {
     send(ws, { type: 'error', message: 'このルームはすでに試合開始済みです。' });
     return;
   }
-  if (!room.p1 || !room.p2) {
-    send(ws, { type: 'error', message: 'P1 と P2 が揃ってから開始してください。' });
-    return;
+  const started = startRoomGameRound(room, `P1 の ${room.p1.displayName} が試合開始しました。配置フェーズはサーバー同期です。`);
+  if (!started.ok) {
+    send(ws, { type: 'error', message: started.message || '試合開始に失敗しました。' });
   }
-  if (!validateDeckPayload(room.p1.deckPayload) || !validateDeckPayload(room.p2.deckPayload)) {
-    send(ws, { type: 'error', message: 'どちらかのデッキが不正です。入り直してください。' });
-    return;
-  }
-  room.game = createInitialGameState(room);
-  room.roomState = computeRoomState(room);
-  const payload = makeGameStartedPayload(room);
-  [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([role, slot]) => {
-    if (slot?.ws) {
-      send(slot.ws, payload);
-      send(slot.ws, roomSnapshot(room, role));
-      send(slot.ws, { type: 'server_notice', message: `P1 の ${room.p1.displayName} が試合開始しました。配置フェーズはサーバー同期です。` });
-    }
-  });
 }
 
 function handlePlaceSetupUnit(data, ws) {
@@ -1235,6 +1629,86 @@ function handleSyncPublicState(data, ws) {
   }
 }
 
+
+function sendRoomActionState(room, noticeMessage = '') {
+  broadcastRoom(room, noticeMessage);
+}
+
+function handleRoomActionRequest(data, ws) {
+  const roomId = String(data.roomId || '').toUpperCase();
+  const room = rooms.get(roomId);
+  if (!room) {
+    send(ws, { type: 'error', message: 'そのルームは見つかりません。' });
+    return;
+  }
+  const meta = ws.meta;
+  if (!meta || meta.roomId !== roomId || !['p1', 'p2', 'spectator'].includes(meta.role)) {
+    send(ws, { type: 'error', message: 'このルームの参加者ではありません。' });
+    return;
+  }
+
+  const action = String(data.action || '');
+  if (action === 'close_room') {
+    if (meta.role !== 'p1') {
+      send(ws, { type: 'error', message: 'ルーム終了は P1 だけが実行できます。' });
+      return;
+    }
+    const message = 'P1 がルームを終了しました。必要なら新しいルームを作り直してください。';
+    [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([_, slot]) => {
+      if (slot?.ws) {
+        send(slot.ws, { type: 'room_closed', roomId: room.roomId, message });
+      }
+    });
+    rooms.delete(room.roomId);
+    return;
+  }
+
+  if (!['rematch', 'reset'].includes(action)) {
+    send(ws, { type: 'error', message: '未対応のルーム操作です。' });
+    return;
+  }
+  if (!['p1', 'p2'].includes(meta.role)) {
+    send(ws, { type: 'error', message: '観戦者はこの操作を実行できません。' });
+    return;
+  }
+  if (!room.p1 || !room.p2) {
+    send(ws, { type: 'error', message: 'P1 と P2 が揃っている時だけ使えます。' });
+    return;
+  }
+  if (action === 'rematch' && room.game?.phase !== 'finished') {
+    send(ws, { type: 'error', message: '再戦は試合終了後だけ申請できます。' });
+    return;
+  }
+  if (action === 'reset' && !room.game) {
+    send(ws, { type: 'error', message: 'リセットできる試合がありません。' });
+    return;
+  }
+
+  if (!room.controlRequests) clearRoomControlRequests(room);
+  const requested = data.requested !== false;
+  room.controlRequests[action][meta.role] = requested;
+  room.updatedAt = Date.now();
+
+  const actorLabel = meta.role.toUpperCase();
+  const actionLabel = action === 'rematch' ? '再戦' : 'リセット';
+  const notice = requested
+    ? `${actorLabel} が ${actionLabel} を申請しました。`
+    : `${actorLabel} が ${actionLabel} 申請を取り消しました。`;
+  sendRoomActionState(room, notice);
+
+  if (room.controlRequests[action].p1 && room.controlRequests[action].p2) {
+    clearRoomControlRequests(room);
+    const startNotice = action === 'rematch'
+      ? '両者が再戦を承認したため、同じルームで再戦を開始します。'
+      : '両者がリセットを承認したため、試合を最初からやり直します。';
+    const started = startRoomGameRound(room, startNotice);
+    if (!started.ok) {
+      send(ws, { type: 'error', message: started.message || `${actionLabel} の開始に失敗しました。` });
+      sendRoomActionState(room);
+    }
+  }
+}
+
 function removeConnection(ws) {
   const meta = ws.meta;
   if (!meta?.roomId || !meta.role) return;
@@ -1267,9 +1741,53 @@ function cleanupExpiredReconnectSlots() {
 
 setInterval(cleanupExpiredReconnectSlots, 15000);
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const reqUrl = new URL(req.url, `http://${req.headers.host}`);
   let pathname = decodeURIComponent(reqUrl.pathname);
+
+  if (req.method === 'POST' && pathname === '/api/cards') {
+    try {
+      const body = await readJsonBody(req);
+      const unlockAuth = sanitizeUnlockAuth(body);
+      const catalog = buildCatalogForSaveKey(unlockAuth.saveKey, unlockAuth.unlockTokens);
+      sendJson(res, 200, catalog);
+    } catch (error) {
+      console.error(error);
+      sendJson(res, 400, { error: 'カード一覧の取得に失敗しました。' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/unlock-card') {
+    try {
+      const body = await readJsonBody(req);
+      const saveKey = normalizeSaveKey(body?.saveKey || '');
+      const normalizedCode = normalizeUnlockCode(body?.code || '');
+      if (!saveKey) {
+        sendJson(res, 400, { error: '保存キーを入れてください。' });
+        return;
+      }
+      const def = UNLOCK_CODE_MAP.get(normalizedCode);
+      if (!def) {
+        sendJson(res, 404, { error: '解放コードが一致しません。' });
+        return;
+      }
+      const token = issueUnlockToken(saveKey, def.cardIds);
+      const unlockedCards = def.cardIds.map((id) => cardMap.get(id)).filter(Boolean);
+      sendJson(res, 200, {
+        ok: true,
+        token,
+        codeLabel: def.label,
+        cardIds: def.cardIds,
+        unlockedCards,
+      });
+    } catch (error) {
+      console.error(error);
+      sendJson(res, 400, { error: '解放コードの確認に失敗しました。' });
+    }
+    return;
+  }
+
   if (pathname === '/') pathname = '/index.html';
   const safePath = path.normalize(pathname).replace(/^([/]*\.{1,2}[/]+)+/, '');
   const filePath = path.join(ROOT_DIR, safePath);
@@ -1312,6 +1830,7 @@ wss.on('connection', (ws) => {
         case 'finish_item_phase': handleFinishItemPhase(data, ws); break;
         case 'end_turn': handleEndTurn(data, ws); break;
         case 'sync_public_state': handleSyncPublicState(data, ws); break;
+        case 'room_action_request': handleRoomActionRequest(data, ws); break;
         default: send(ws, { type: 'error', message: '未対応のメッセージです。' }); break;
       }
     } catch (error) {
