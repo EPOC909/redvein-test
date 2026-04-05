@@ -1133,12 +1133,34 @@ function getPendingRedeployOwner() {
   return matchState.turnState?.pendingRedeployOwner || '';
 }
 
+function clearPendingRedeployPrompt(options = {}) {
+  if (!matchState.turnState) return;
+  matchState.turnState.pendingRedeployCardId = null;
+  matchState.turnState.pendingRedeployOwner = null;
+  if (matchState.phase === 'battle' && options.keepItemWindowClosed !== true) {
+    matchState.turnState.itemWindowOpen = true;
+  }
+}
+
 function getPendingRedeployCard() {
   const cardId = getPendingRedeployCardId();
   const owner = getPendingRedeployOwner();
   if (!cardId || !owner) return null;
   const exists = (matchState.pendingRedeploys || []).some((entry) => entry.owner === owner && entry.cardId === cardId);
-  return exists ? cardMap.get(cardId) : null;
+  if (!exists) {
+    clearPendingRedeployPrompt();
+    return null;
+  }
+  if (owner !== matchState.currentPlayer) {
+    clearPendingRedeployPrompt();
+    return null;
+  }
+  const openCells = getHomeRespawnCells(owner).filter((idx) => !matchState.board[idx]);
+  if (!openCells.length) {
+    clearPendingRedeployPrompt();
+    return null;
+  }
+  return cardMap.get(cardId) || null;
 }
 
 function getHomeRespawnCells(playerKey) {
