@@ -125,17 +125,28 @@ let roomSyncState = { enabled: false, role: '', battleControlsEnabled: false, pe
 
 const SFX_STORAGE_KEY = 'redvein_sfx_enabled_v1';
 const SFX_MASTER_VOLUME = 0.08;
+const ACTION_GUIDE_COLLAPSED_STORAGE_KEY = 'redvein_action_guide_collapsed_v1';
 let sfxEnabled = loadSfxEnabled();
 let sfxAudioContext = null;
 let sfxMasterGainNode = null;
 let sfxToggleButton = null;
 let lastFinishedSfxMessage = '';
 
+let actionGuideCollapsed = loadActionGuideCollapsed();
 let actionGuideRoot = null;
 let actionGuideTitle = null;
 let actionGuideMain = null;
 let actionGuideSub = null;
 let actionGuideMeta = null;
+let actionGuideToggleButton = null;
+
+let itemShowcaseRoot = null;
+let itemShowcaseImage = null;
+let itemShowcaseFallback = null;
+let itemShowcaseName = null;
+let itemShowcaseMeta = null;
+let itemShowcaseEffect = null;
+let itemShowcaseHideTimer = null;
 
 
 function injectActionGuideStyles() {
@@ -157,8 +168,16 @@ function injectActionGuideStyles() {
       backdrop-filter: blur(10px);
       padding: 12px 16px 14px;
       pointer-events: none;
+      transition: width 0.18s ease, padding 0.18s ease, opacity 0.18s ease;
     }
     #redveinActionGuide.rv-guide-hidden { display: none; }
+    #redveinActionGuide .rv-guide-shell {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
     #redveinActionGuide .rv-guide-kicker {
       display: inline-flex;
       align-items: center;
@@ -171,7 +190,26 @@ function injectActionGuideStyles() {
       font-size: 12px;
       font-weight: 800;
       letter-spacing: 0.08em;
-      margin-bottom: 8px;
+      margin-bottom: 0;
+    }
+    #redveinActionGuide .rv-guide-toggle {
+      pointer-events: auto;
+      appearance: none;
+      border: 1px solid rgba(255, 220, 160, 0.22);
+      background: rgba(255,255,255,0.06);
+      color: #ffe8ef;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+    }
+    #redveinActionGuide .rv-guide-toggle:hover {
+      transform: translateY(-1px);
+      background: rgba(255,255,255,0.1);
+      border-color: rgba(255, 220, 160, 0.34);
     }
     #redveinActionGuide .rv-guide-title {
       font-size: 24px;
@@ -191,6 +229,15 @@ function injectActionGuideStyles() {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
+    }
+    #redveinActionGuide.rv-guide-collapsed {
+      width: min(320px, calc(100vw - 24px));
+      padding: 10px 12px;
+    }
+    #redveinActionGuide.rv-guide-collapsed .rv-guide-title,
+    #redveinActionGuide.rv-guide-collapsed .rv-guide-sub,
+    #redveinActionGuide.rv-guide-collapsed .rv-guide-meta {
+      display: none;
     }
     #redveinActionGuide .rv-guide-chip {
       display: inline-flex;
@@ -247,7 +294,10 @@ function ensureActionGuide() {
   actionGuideRoot.id = 'redveinActionGuide';
   actionGuideRoot.className = 'rv-guide-hidden';
   actionGuideRoot.innerHTML = `
-    <div class="rv-guide-kicker">いまやること</div>
+    <div class="rv-guide-shell">
+      <div class="rv-guide-kicker">いまやること</div>
+      <button type="button" class="rv-guide-toggle" aria-label="案内を折りたたむ"></button>
+    </div>
     <div class="rv-guide-title"></div>
     <div class="rv-guide-sub"></div>
     <div class="rv-guide-meta"></div>
@@ -257,7 +307,43 @@ function ensureActionGuide() {
   actionGuideMain = actionGuideRoot.querySelector('.rv-guide-sub');
   actionGuideSub = actionGuideRoot.querySelector('.rv-guide-kicker');
   actionGuideMeta = actionGuideRoot.querySelector('.rv-guide-meta');
+  actionGuideToggleButton = actionGuideRoot.querySelector('.rv-guide-toggle');
+  actionGuideToggleButton?.addEventListener('click', () => {
+    setActionGuideCollapsed(!actionGuideCollapsed);
+  });
+  updateActionGuideToggleButton();
   return actionGuideRoot;
+}
+
+function loadActionGuideCollapsed() {
+  try {
+    return localStorage.getItem(ACTION_GUIDE_COLLAPSED_STORAGE_KEY) === '1';
+  } catch (_) {
+    return false;
+  }
+}
+
+function saveActionGuideCollapsed() {
+  try {
+    localStorage.setItem(ACTION_GUIDE_COLLAPSED_STORAGE_KEY, actionGuideCollapsed ? '1' : '0');
+  } catch (_) {
+    // no-op
+  }
+}
+
+function updateActionGuideToggleButton() {
+  if (!actionGuideToggleButton) return;
+  actionGuideToggleButton.textContent = actionGuideCollapsed ? '案内を開く' : '案内を閉じる';
+  actionGuideToggleButton.setAttribute('aria-label', actionGuideCollapsed ? '案内を開く' : '案内を閉じる');
+}
+
+function setActionGuideCollapsed(nextValue) {
+  actionGuideCollapsed = !!nextValue;
+  saveActionGuideCollapsed();
+  if (actionGuideRoot) {
+    actionGuideRoot.classList.toggle('rv-guide-collapsed', actionGuideCollapsed);
+  }
+  updateActionGuideToggleButton();
 }
 
 function clearActionGuideHighlights() {
@@ -498,6 +584,8 @@ function buildGuideState() {
 function updateActionGuide() {
   const root = ensureActionGuide();
   if (!root) return;
+  root.classList.toggle('rv-guide-collapsed', actionGuideCollapsed);
+  updateActionGuideToggleButton();
   clearActionGuideHighlights();
   const state = buildGuideState();
   if (!state || state.show === false) {
@@ -518,6 +606,217 @@ function updateActionGuide() {
     });
   }
   if (typeof state.highlight === 'function') state.highlight();
+}
+
+function injectItemShowcaseStyles() {
+  if (document.getElementById('redveinItemShowcaseStyle')) return;
+  const style = document.createElement('style');
+  style.id = 'redveinItemShowcaseStyle';
+  style.textContent = `
+    #redveinItemShowcase {
+      position: fixed;
+      inset: 0;
+      z-index: 10002;
+      display: grid;
+      place-items: center;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.22s ease;
+    }
+    #redveinItemShowcase.rv-item-showcase-visible {
+      opacity: 1;
+    }
+    #redveinItemShowcase .rv-item-showcase-backdrop {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(120, 20, 44, 0.22), rgba(5, 4, 8, 0.64));
+      backdrop-filter: blur(4px);
+    }
+    #redveinItemShowcase .rv-item-showcase-panel {
+      position: relative;
+      width: min(440px, calc(100vw - 28px));
+      border-radius: 26px;
+      padding: 18px 18px 20px;
+      border: 1px solid rgba(255, 220, 160, 0.28);
+      background: linear-gradient(180deg, rgba(33, 15, 23, 0.96), rgba(17, 10, 16, 0.94));
+      box-shadow: 0 24px 90px rgba(0, 0, 0, 0.45), 0 0 40px rgba(255, 88, 116, 0.14);
+      text-align: center;
+      transform: translateY(12px) scale(0.94);
+      transition: transform 0.24s ease;
+      overflow: hidden;
+    }
+    #redveinItemShowcase.rv-item-showcase-visible .rv-item-showcase-panel {
+      transform: translateY(0) scale(1);
+    }
+    #redveinItemShowcase .rv-item-showcase-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 216, 158, 0.28);
+      background: rgba(255,255,255,0.06);
+      color: #ffdca6;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+    #redveinItemShowcase .rv-item-showcase-card-wrap {
+      margin: 14px auto 0;
+      width: min(270px, 66vw);
+    }
+    #redveinItemShowcase .rv-item-showcase-card {
+      position: relative;
+      aspect-ratio: 0.7;
+      border-radius: 22px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: linear-gradient(180deg, rgba(95, 32, 49, 0.94), rgba(24, 12, 18, 0.96));
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34), 0 0 32px rgba(255, 132, 160, 0.16);
+    }
+    #redveinItemShowcase .rv-item-showcase-image,
+    #redveinItemShowcase .rv-item-showcase-fallback {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #redveinItemShowcase .rv-item-showcase-image {
+      object-fit: cover;
+      background: rgba(0, 0, 0, 0.2);
+    }
+    #redveinItemShowcase .rv-item-showcase-fallback {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      color: #fff3f5;
+      font-size: 24px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      text-shadow: 0 2px 20px rgba(0,0,0,0.35);
+      background: radial-gradient(circle at 50% 20%, rgba(255, 118, 154, 0.22), rgba(0,0,0,0.14) 42%), linear-gradient(180deg, rgba(88, 26, 44, 1), rgba(22, 11, 17, 1));
+    }
+    #redveinItemShowcase .rv-item-showcase-name {
+      margin-top: 14px;
+      color: #fff4f6;
+      font-size: 28px;
+      line-height: 1.25;
+      font-weight: 900;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.25);
+    }
+    #redveinItemShowcase .rv-item-showcase-meta {
+      margin-top: 8px;
+      color: rgba(255, 226, 232, 0.76);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    #redveinItemShowcase .rv-item-showcase-effect {
+      margin-top: 10px;
+      color: rgba(255, 236, 240, 0.94);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    @media (max-width: 900px) {
+      #redveinItemShowcase .rv-item-showcase-panel {
+        width: min(360px, calc(100vw - 20px));
+        padding: 16px 14px 18px;
+      }
+      #redveinItemShowcase .rv-item-showcase-name {
+        font-size: 22px;
+      }
+      #redveinItemShowcase .rv-item-showcase-card-wrap {
+        width: min(220px, 62vw);
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function ensureItemShowcase() {
+  if (itemShowcaseRoot && document.body.contains(itemShowcaseRoot)) return itemShowcaseRoot;
+  injectItemShowcaseStyles();
+  if (!document.body) return null;
+  itemShowcaseRoot = document.createElement('div');
+  itemShowcaseRoot.id = 'redveinItemShowcase';
+  itemShowcaseRoot.innerHTML = `
+    <div class="rv-item-showcase-backdrop"></div>
+    <div class="rv-item-showcase-panel">
+      <div class="rv-item-showcase-badge">ITEM USED</div>
+      <div class="rv-item-showcase-card-wrap">
+        <div class="rv-item-showcase-card">
+          <img class="rv-item-showcase-image" alt="使用アイテム">
+          <div class="rv-item-showcase-fallback"></div>
+        </div>
+      </div>
+      <div class="rv-item-showcase-name"></div>
+      <div class="rv-item-showcase-meta"></div>
+      <div class="rv-item-showcase-effect"></div>
+    </div>
+  `;
+  document.body.appendChild(itemShowcaseRoot);
+  itemShowcaseImage = itemShowcaseRoot.querySelector('.rv-item-showcase-image');
+  itemShowcaseFallback = itemShowcaseRoot.querySelector('.rv-item-showcase-fallback');
+  itemShowcaseName = itemShowcaseRoot.querySelector('.rv-item-showcase-name');
+  itemShowcaseMeta = itemShowcaseRoot.querySelector('.rv-item-showcase-meta');
+  itemShowcaseEffect = itemShowcaseRoot.querySelector('.rv-item-showcase-effect');
+  return itemShowcaseRoot;
+}
+
+function hideItemShowcase(immediate = false) {
+  if (itemShowcaseHideTimer) {
+    clearTimeout(itemShowcaseHideTimer);
+    itemShowcaseHideTimer = null;
+  }
+  if (!itemShowcaseRoot) return;
+  if (immediate) {
+    itemShowcaseRoot.classList.remove('rv-item-showcase-visible');
+    return;
+  }
+  itemShowcaseHideTimer = setTimeout(() => {
+    itemShowcaseRoot?.classList.remove('rv-item-showcase-visible');
+    itemShowcaseHideTimer = null;
+  }, 1050);
+}
+
+function showItemShowcase(card) {
+  if (!card || card.type !== 'item') return;
+  const root = ensureItemShowcase();
+  if (!root) return;
+  const imagePath = getCardImagePath(card);
+  if (itemShowcaseName) itemShowcaseName.textContent = card.card_name || 'アイテム';
+  if (itemShowcaseMeta) itemShowcaseMeta.textContent = `${typeLabel(card.type)} / ${String(card.rarity || '').toUpperCase()} / ${card.card_id || ''}`;
+  if (itemShowcaseEffect) itemShowcaseEffect.textContent = card.effect_text || '効果発動';
+  if (itemShowcaseFallback) {
+    itemShowcaseFallback.textContent = card.card_name || 'ITEM';
+    itemShowcaseFallback.style.display = imagePath ? 'none' : 'flex';
+  }
+  if (itemShowcaseImage) {
+    if (imagePath) {
+      itemShowcaseImage.style.display = 'block';
+      itemShowcaseImage.src = imagePath;
+      itemShowcaseImage.alt = `${card.card_name || 'アイテム'} の画像`;
+      itemShowcaseImage.onerror = () => {
+        itemShowcaseImage.style.display = 'none';
+        if (itemShowcaseFallback) itemShowcaseFallback.style.display = 'flex';
+      };
+      itemShowcaseImage.onload = () => {
+        itemShowcaseImage.style.display = 'block';
+        if (itemShowcaseFallback) itemShowcaseFallback.style.display = 'none';
+      };
+    } else {
+      itemShowcaseImage.removeAttribute('src');
+      itemShowcaseImage.style.display = 'none';
+    }
+  }
+  if (itemShowcaseHideTimer) {
+    clearTimeout(itemShowcaseHideTimer);
+    itemShowcaseHideTimer = null;
+  }
+  root.classList.remove('rv-item-showcase-visible');
+  void root.offsetWidth;
+  root.classList.add('rv-item-showcase-visible');
+  hideItemShowcase(false);
 }
 
 function loadSfxEnabled() {
@@ -2550,6 +2849,7 @@ function performItemUseLocal(selectedCardId, targetIndex = null, playerKey = mat
   const applied = applyItemEffect(card, matchState.currentPlayer);
   if (!applied) return false;
 
+  showItemShowcase(card);
   itemState.used = true;
   matchState.turnState.itemUsed = true;
   closeItemWindow();
@@ -3839,6 +4139,7 @@ function startTestMatch() {
 }
 
 function resetTestMatch() {
+  hideItemShowcase(true);
   matchState = createEmptyMatchState();
   lastFinishedSfxMessage = '';
   renderMatchArea();
@@ -4157,4 +4458,5 @@ window.REDVEIN_ROOM_API = {
 
 setupSfx();
 ensureActionGuide();
+ensureItemShowcase();
 loadCards();
