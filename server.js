@@ -259,8 +259,8 @@ function getEliminationFinishMessage(game) {
   if (!game || !['battle', 'finished'].includes(game.phase)) return '';
   const p1Alive = game.board.filter((unit) => unit && unit.owner === 'player1').length;
   const p2Alive = game.board.filter((unit) => unit && unit.owner === 'player2').length;
-  const p1Active = p1Alive > 0 || (Array.isArray(game.pendingRedeploys) && game.pendingRedeploys.some((item) => item && item.owner === 'player1'));
-  const p2Active = p2Alive > 0 || (Array.isArray(game.pendingRedeploys) && game.pendingRedeploys.some((item) => item && item.owner === 'player2'));
+  const p1Active = p1Alive > 0;
+  const p2Active = p2Alive > 0;
   if (!p1Active && !p2Active) return '両者全滅により引き分けです';
   if (!p1Active) return 'プレイヤー2の全滅勝ちです';
   if (!p2Active) return 'プレイヤー1の全滅勝ちです';
@@ -296,11 +296,6 @@ function indexToCoord(index) {
 
 function coordToIndex(row, col) {
   return row * 5 + col;
-}
-
-function getHomeRespawnCells(playerKey) {
-  const column = HOME_COLUMN[playerKey];
-  return [0, 1, 2, 3, 4].map((row) => coordToIndex(row, column));
 }
 
 function getOrthogonalNeighbors(index) {
@@ -529,40 +524,15 @@ function refreshTurnStatusForPlayer(game, playerKey) {
   });
 }
 
-function autoRedeployPendingUnitsForPlayer(game, playerKey) {
-  normalizePendingRedeploys(game);
-  const queue = Array.isArray(game.pendingRedeploys) ? game.pendingRedeploys : [];
-  if (!queue.length) return;
-
-  const remaining = [];
-  queue.forEach((entry) => {
-    if (!entry || !entry.cardId || !entry.owner) return;
-    if (entry.owner !== playerKey) {
-      remaining.push(entry);
-      return;
-    }
-    const spawnIndex = getHomeRespawnCells(playerKey).find((idx) => !game.board[idx]);
-    if (spawnIndex == null || spawnIndex < 0) {
-      remaining.push(entry);
-      return;
-    }
-    const unit = createUnitState(entry.cardId, playerKey);
-    unit.currentHp = unit.maxHp;
-    game.board[spawnIndex] = unit;
-  });
-
-  game.pendingRedeploys = remaining;
-}
-
 function beginTurn(game, playerKey) {
   game.currentPlayer = playerKey;
   game.phase = 'battle';
   game.itemPhaseOpen = true;
   game.itemUsed = false;
   game.turnState = createTurnState();
+  game.pendingRedeploys = [];
   clearTempEffectsForPlayer(game, playerKey);
   refreshTurnStatusForPlayer(game, playerKey);
-  autoRedeployPendingUnitsForPlayer(game, playerKey);
 }
 
 function getRequiredItemTargetType(card) {
@@ -697,16 +667,7 @@ function sanitizeTurnStateSnapshot(turnState, fallback = createTurnState()) {
 
 
 function normalizePendingRedeploys(game) {
-  const raw = Array.isArray(game.pendingRedeploys) ? game.pendingRedeploys : [];
-  const seen = new Set();
-  game.pendingRedeploys = raw.filter((entry) => {
-    if (!entry || (entry.owner !== 'player1' && entry.owner !== 'player2') || !validCardIds.has(String(entry.cardId || ''))) return false;
-    const key = `${entry.owner}:${entry.cardId}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    const sameCardOnBoard = (game.board || []).some((unit) => unit && unit.owner === entry.owner && unit.cardId === entry.cardId);
-    return !sameCardOnBoard;
-  }).map((entry) => ({ owner: entry.owner, cardId: String(entry.cardId), name: String(entry.name || getCardMeta(entry.cardId)?.card_name || entry.cardId) }));
+  game.pendingRedeploys = [];
 }
 
 function mergePublicStateSnapshot(room, payload, playerKey) {
@@ -724,7 +685,6 @@ function mergePublicStateSnapshot(room, payload, playerKey) {
   room.game.itemPhaseOpen = !!payload.itemPhaseOpen;
   room.game.itemUsed = !!payload.itemUsed;
   room.game.pendingRevives = Array.isArray(payload.pendingRevives) ? payload.pendingRevives : room.game.pendingRevives;
-  room.game.pendingRedeploys = Array.isArray(payload.pendingRedeploys) ? payload.pendingRedeploys : room.game.pendingRedeploys;
   normalizePendingRedeploys(room.game);
 
   const playerData = payload.players && typeof payload.players === 'object' ? payload.players : {};
@@ -1100,15 +1060,6 @@ function handleAttackUnit(data, ws) {
   game.turnState.attacked = true;
   if (unitHasEffectType(attacker, 'move_after_attack_1')) {
     game.turnState.postAttackMoveUnitId = unitId;
-  }
-  if (unitHasEffectType(attacker, 'return_and_redeploy_full_heal')) {
-    const exists = game.pendingRedeploys.some((entry) => entry && entry.owner === playerKey && entry.cardId === attacker.cardId);
-    if (!exists) {
-      game.pendingRedeploys.push({ owner: playerKey, cardId: attacker.cardId, name: attacker.name });
-    }
-    game.board[sourceIndex] = null;
-    game.turnState.postAttackMoveUnitId = null;
-    normalizePendingRedeploys(game);
   }
   const payload = {
     type: 'attack_applied',

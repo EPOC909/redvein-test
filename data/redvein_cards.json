@@ -463,8 +463,8 @@
     "hp": 2,
     "atk": 3,
     "move": 2,
-    "effect_text": "攻撃したあと手元に戻る。次のターン、自陣の縦1列のどこかに再配置でき、HPは全回復する",
-    "effect_type": "return_and_redeploy_full_heal",
+    "effect_text": "攻撃後、自陣の同じ段に戻る。戻り先が埋まっている場合、戻らない",
+    "effect_type": "return_to_home_row_after_attack",
     "image_file": "RV-039.png"
   },
   {
