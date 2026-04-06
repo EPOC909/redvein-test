@@ -5806,17 +5806,6 @@ function getPostAttackMoveUnit() {
   return matchState.board[index] || null;
 }
 
-function shouldShowPostAttackMoveUi() {
-  if (!getPostAttackMoveUnitId()) return false;
-  if (!roomSyncState.enabled) return true;
-  return isRoomActiveBattlePlayer();
-}
-
-function getVisiblePostAttackMoveUnit() {
-  if (!shouldShowPostAttackMoveUi()) return null;
-  return getPostAttackMoveUnit();
-}
-
 function clearPostAttackMoveOpportunity() {
   if (!matchState.turnState) return;
   matchState.turnState.postAttackMoveUnitId = null;
@@ -6514,7 +6503,7 @@ function updateSelectionInfo() {
     return;
   }
 
-  const postAttackMoveUnit = getVisiblePostAttackMoveUnit();
+  const postAttackMoveUnit = getPostAttackMoveUnit();
   if (postAttackMoveUnit) {
     const moveCells = getPostAttackMoveCells(postAttackMoveUnit.instanceId);
     setSelectionInfoText(`攻撃後移動: ${postAttackMoveUnit.name} は攻撃後に1マス移動できます。${moveCells.length ? '移動先を1つ選ぶか、手番終了でそのまま終了してください。' : '空きマスがないため移動できません。'}`);
@@ -6752,8 +6741,8 @@ function renderPlayerPanels() {
 function renderBoard() {
   const moveTargets = matchState.actionMode === 'move' && matchState.selectedUnitId ? getReachableMoveCells(matchState.selectedUnitId) : [];
   const attackTargets = matchState.actionMode === 'attack' && matchState.selectedUnitId ? getAttackTargets(matchState.selectedUnitId) : [];
-  const visiblePostAttackMoveUnit = getVisiblePostAttackMoveUnit();
-  const postAttackMoveTargets = visiblePostAttackMoveUnit ? getPostAttackMoveCells(visiblePostAttackMoveUnit.instanceId) : [];
+  const canShowPostAttackTargets = !roomSyncState.enabled || isRoomActiveBattlePlayer();
+  const postAttackMoveTargets = canShowPostAttackTargets && getPostAttackMoveUnitId() ? getPostAttackMoveCells(getPostAttackMoveUnitId()) : [];
   const placeableCells = matchState.phase === 'setup' ? getPlaceableCellsForCurrentStep() : [];
   const redeployCells = getRedeployableCells(matchState.currentPlayer);
   const pendingAction = getPendingAction();
@@ -6995,8 +6984,8 @@ function renderMatchMeta() {
       } else {
         setPhaseInfoText(`${activeLabel} の手番です。まずアイテムを1枚選ぶか、「アイテムを使わず次へ」を押してください。`);
       }
-    } else if (getVisiblePostAttackMoveUnit()) {
-      const postAttackMoveUnit = getVisiblePostAttackMoveUnit();
+    } else if (getPostAttackMoveUnit()) {
+      const postAttackMoveUnit = getPostAttackMoveUnit();
       setPhaseInfoText(`${activeLabel} の追加処理です。「${postAttackMoveUnit.name}」は攻撃後に1マス移動できます。盤面の光ったマスを選ぶか、「手番終了」で移動せずに終えてください。`);
     } else {
       const hasAccel = matchState.turnState.acceleratedUnitId && matchState.turnState.acceleratedMovesRemaining > 0;
@@ -7030,7 +7019,7 @@ function renderMatchMeta() {
   const itemSelected = !!selectedItemCard;
   const itemCanConfirm = !!(selectedItemCard && canConfirmSelectedItem(selectedItemCard));
   const pendingAction = getPendingAction();
-  const postAttackMoveActive = !!getVisiblePostAttackMoveUnit();
+  const postAttackMoveActive = !!getPostAttackMoveUnit();
   const roomBattleLocked = isRoomBattleLocked();
   const roomMovePending = roomSyncState.enabled && roomSyncState.pendingMoveRequest;
   const roomAttackPending = roomSyncState.enabled && roomSyncState.pendingAttackRequest;
@@ -7711,7 +7700,7 @@ function confirmPendingBoardAction() {
   const pendingAction = getPendingAction();
   if (!pendingAction || matchState.phase !== 'battle') return;
 
-  if (pendingAction.type === 'move') {
+  if (pendingAction.type === 'move' || pendingAction.type === 'postAttackMove') {
     if (roomSyncState.enabled && isRoomActiveBattlePlayer() && typeof roomSyncState.onMoveRequest === 'function') {
       roomSyncState.pendingMoveRequest = true;
       renderMatchArea();
@@ -7721,25 +7710,13 @@ function confirmPendingBoardAction() {
         sourceIndex: pendingAction.sourceIndex,
         targetIndex: pendingAction.targetIndex,
       });
+      return;
+    }
+    if (pendingAction.type === 'postAttackMove') {
+      applyPendingPostAttackMove(pendingAction);
       return;
     }
     applyPendingMove(pendingAction);
-    return;
-  }
-  if (pendingAction.type === 'postAttackMove') {
-    if (roomSyncState.enabled && isRoomActiveBattlePlayer() && typeof roomSyncState.onMoveRequest === 'function') {
-      roomSyncState.pendingMoveRequest = true;
-      renderMatchArea();
-      roomSyncState.onMoveRequest({
-        player: matchState.currentPlayer,
-        unitId: pendingAction.unitId,
-        sourceIndex: pendingAction.sourceIndex,
-        targetIndex: pendingAction.targetIndex,
-        postAttackMove: true,
-      });
-      return;
-    }
-    applyPendingPostAttackMove(pendingAction);
     return;
   }
   if (pendingAction.type === 'attack') {
@@ -8136,17 +8113,19 @@ function applyRoomMove(data = {}) {
   if (!unitId || Number.isNaN(sourceIndex) || Number.isNaN(targetIndex)) return false;
 
   const pendingAction = getPendingAction();
+  const isPostAttackMove = !!(matchState.turnState?.postAttackMoveUnitId && matchState.turnState.postAttackMoveUnitId === unitId);
   clearRoomPendingRequests();
   if (data.currentPlayer) matchState.currentPlayer = data.currentPlayer;
 
-  if (pendingAction && pendingAction.type === 'move' && pendingAction.unitId === unitId && Number(pendingAction.targetIndex) === targetIndex) {
-    applyPendingMove(pendingAction);
-    return true;
-  }
-
-  if (pendingAction && pendingAction.type === 'postAttackMove' && pendingAction.unitId === unitId && Number(pendingAction.targetIndex) === targetIndex) {
-    applyPendingPostAttackMove(pendingAction);
-    return true;
+  if (pendingAction && pendingAction.unitId === unitId && Number(pendingAction.targetIndex) === targetIndex) {
+    if (pendingAction.type === 'postAttackMove' || isPostAttackMove) {
+      applyPendingPostAttackMove(pendingAction);
+      return true;
+    }
+    if (pendingAction.type === 'move') {
+      applyPendingMove(pendingAction);
+      return true;
+    }
   }
 
   const actorPlayer = String(data.player || '');
@@ -8155,25 +8134,20 @@ function applyRoomMove(data = {}) {
   const unit = matchState.board[resolvedSourceIndex];
   if (!unit || (actorPlayer && unit.owner !== actorPlayer)) return false;
 
-  const isPostAttackMove = data.postAttackMove === true || getPostAttackMoveUnitId() === unitId;
-  if (isPostAttackMove) {
-    applyPendingPostAttackMove({
-      type: 'postAttackMove',
-      unitId,
-      targetIndex,
-      fromLabel: formatCellLabel(resolvedSourceIndex),
-      toLabel: formatCellLabel(targetIndex),
-    });
-    return true;
-  }
-
-  applyPendingMove({
-    type: 'move',
+  const actionPayload = {
+    type: isPostAttackMove ? 'postAttackMove' : 'move',
     unitId,
     targetIndex,
     fromLabel: formatCellLabel(resolvedSourceIndex),
     toLabel: formatCellLabel(targetIndex),
-  });
+  };
+
+  if (isPostAttackMove) {
+    applyPendingPostAttackMove(actionPayload);
+    return true;
+  }
+
+  applyPendingMove(actionPayload);
   return true;
 }
 
