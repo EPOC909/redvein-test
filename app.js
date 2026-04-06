@@ -4469,6 +4469,7 @@ function getUnitAttackBonusParts(unit, boardIndex = null) {
   if (unit.cardId === 'RV-030' && matchState.phase === 'battle' && matchState.turnState?.movedUnitId === unit.instanceId) parts.push({ label: '騎馬兵', value: 1 });
   const pendingBonus = getPendingAttackBonusForUnit(unit);
   if (pendingBonus > 0) parts.push({ label: '背後攻撃', value: pendingBonus });
+  if (getRoyalCommandAttackBonus(unit) > 0) parts.push({ label: '王冠の勅命', value: getRoyalCommandAttackBonus(unit) });
   return parts;
 }
 
@@ -7442,6 +7443,7 @@ function applyPendingAttack(pendingAction) {
   if (!attacker || !defender || defender.owner === attacker.owner) return;
 
   const backstabTriggered = attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, pendingAction.targetIndex, defender.owner);
+  const royalCommandAttackBoost = getRoyalCommandAttackBonus(attacker);
   let defeatedByAttack = 0;
   const attackFxHits = [];
   const specialAttackFxQueue = [];

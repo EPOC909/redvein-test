@@ -45,7 +45,7 @@ const SPECIAL_CARDS = [
     hp: null,
     atk: null,
     move: null,
-    effect_text: '味方1体はこの手番、追加で1回移動できる。',
+    effect_text: '味方1体を選ぶ。そのユニットはこの手番中、追加で1回移動できる。さらに、移動後の最初の攻撃で攻撃力+1。',
     effect_type: 'royal_command_single',
     image_file: 'SP-003.png',
     unlock_only: true,
