@@ -19,7 +19,7 @@ const SPECIAL_CARDS = [
     hp: null,
     atk: null,
     move: null,
-    effect_text: '敵ユニット1体を破壊する。この効果で破壊されたユニットは復活できない。',
+    effect_text: '敵1体を破壊する。この効果で破壊されたユニットは復活できない。',
     effect_type: 'destroy_single_no_revive',
     image_file: 'SP-001.png',
     unlock_only: true,
@@ -32,7 +32,7 @@ const SPECIAL_CARDS = [
     hp: null,
     atk: null,
     move: null,
-    effect_text: '味方ユニット1体のHPを3回復する。さらに、そのユニットはこのターン中、攻撃力+1。',
+    effect_text: '味方1体のHPを3回復し、このターンATKを+1する。',
     effect_type: 'heal_single_3_atk_up_turn_1',
     image_file: 'SP-002.png',
     unlock_only: true,
@@ -45,7 +45,7 @@ const SPECIAL_CARDS = [
     hp: null,
     atk: null,
     move: null,
-    effect_text: '味方ユニット1体を選ぶ。そのユニットはこの手番中、追加で1回移動できる。さらに、移動後の最初の攻撃で攻撃力+1。',
+    effect_text: '味方1体はこの手番、追加で1回移動できる。',
     effect_type: 'royal_command_single',
     image_file: 'SP-003.png',
     unlock_only: true,
@@ -58,7 +58,7 @@ const SPECIAL_CARDS = [
     hp: 5,
     atk: 2,
     move: 2,
-    effect_text: 'このユニットが倒されるダメージを受けた時、1度だけHP1で耐える。',
+    effect_text: '倒されるダメージを受けた時、1度だけHP1で耐える。',
     effect_type: 'survive_once_at_1',
     image_file: 'SP-004.png',
     unlock_only: true,
@@ -71,7 +71,7 @@ const SPECIAL_CARDS = [
     hp: 5,
     atk: 2,
     move: 1,
-    effect_text: 'このユニットは、自身より攻撃力の高い敵から受けるダメージを1減らす。',
+    effect_text: '自分より攻撃力の高い敵から受ける戦闘ダメージを-1する。',
     effect_type: 'reduce_damage_from_stronger_enemy_1',
     image_file: 'SP-005.png',
     unlock_only: true,
@@ -84,7 +84,7 @@ const SPECIAL_CARDS = [
     hp: 4,
     atk: 3,
     move: 1,
-    effect_text: 'このユニットが攻撃した時、その対象に隣接する敵ユニット1体にも1ダメージを与える。',
+    effect_text: '攻撃時、対象に隣接する敵1体にも1ダメージを与える。',
     effect_type: 'splash_adjacent_enemy_1_on_attack',
     image_file: 'SP-006.png',
     unlock_only: true,
@@ -97,7 +97,7 @@ const SPECIAL_CARDS = [
     hp: 2,
     atk: 4,
     move: 2,
-    effect_text: 'このユニットは攻撃後、1マス移動できる。',
+    effect_text: '攻撃後、1マス移動できる。',
     effect_type: 'move_after_attack_1',
     image_file: 'SP-007.png',
     unlock_only: true,
@@ -110,7 +110,7 @@ const SPECIAL_CARDS = [
     hp: null,
     atk: null,
     move: null,
-    effect_text: '味方ユニットは、中央9マスにいる間、攻撃力+2。',
+    effect_text: '味方は中央9マスで戦う間、ATK+2。',
     effect_type: 'field_center_ally_atk_plus_2',
     image_file: 'SP-008.png',
     unlock_only: true,
@@ -123,7 +123,7 @@ const SPECIAL_CARDS = [
     hp: null,
     atk: null,
     move: null,
-    effect_text: '中央9マスにいる味方ユニットは、受けるダメージを1減らす。さらに、攻撃力+1。',
+    effect_text: '中央9マスにいる味方は受けるダメージ-1、ATK+1。',
     effect_type: 'field_center_ally_guard_1_atk_plus_1',
     image_file: 'SP-009.png',
     unlock_only: true,
@@ -136,7 +136,7 @@ const SPECIAL_CARDS = [
     hp: 6,
     atk: 3,
     move: 2,
-    effect_text: 'このユニットが敵ユニットを撃破するたび、HPを1回復する。すでにHPが最大なら、代わりに攻撃力+1。',
+    effect_text: '敵を破壊するたび、自身のHPを1回復する。HPが満タンならATK+1。',
     effect_type: 'on_kill_heal_1_else_atk_plus_1',
     image_file: 'SP-010.png',
     unlock_only: true,
@@ -562,6 +562,7 @@ function createTurnState() {
     acceleratedUnitId: null,
     acceleratedMovesRemaining: 0,
     royalCommandUnitId: null,
+    royalCommandAttackReady: false,
     postAttackMoveUnitId: null,
     lastActionByPlayer: {
       player1: { signature: '', at: 0 },
@@ -591,7 +592,6 @@ function createUnitState(cardId, owner, forcedInstanceId = '') {
     guardBlockUsed: false,
     negateDamageUsed: false,
     surviveOnceUsed: false,
-    royalCommandAttackReady: false,
   };
 }
 
@@ -869,7 +869,6 @@ function clearTempEffectsForPlayer(game, playerKey) {
     if (!unit || unit.owner !== playerKey) return;
     unit.tempAtkBuff = 0;
     unit.tempMoveBuff = 0;
-    unit.royalCommandAttackReady = false;
   });
 }
 
@@ -986,9 +985,9 @@ function applyServerSideItemEffects(game, playerKey, cardId, targetIndex) {
     case 'royal_command_single': {
       if (!targetUnit || targetUnit.owner !== playerKey) return;
       game.turnState.acceleratedUnitId = targetUnit.instanceId;
-      game.turnState.acceleratedMovesRemaining = Math.max(Number(game.turnState.acceleratedMovesRemaining || 0), 1);
+      game.turnState.acceleratedMovesRemaining = Math.max(Number(game.turnState.acceleratedMovesRemaining || 0), 2);
       game.turnState.royalCommandUnitId = targetUnit.instanceId;
-      targetUnit.royalCommandAttackReady = false;
+      game.turnState.royalCommandAttackReady = false;
       break;
     }
     case 'disable_attack_next_round': {
@@ -1041,7 +1040,6 @@ function sanitizeBoardSnapshot(board) {
       guardBlockUsed: !!cell.guardBlockUsed,
       negateDamageUsed: !!cell.negateDamageUsed,
       surviveOnceUsed: !!cell.surviveOnceUsed,
-      royalCommandAttackReady: !!cell.royalCommandAttackReady,
     };
   });
 }
@@ -1060,6 +1058,7 @@ function sanitizeTurnStateSnapshot(turnState, fallback = createTurnState()) {
     acceleratedUnitId: raw.acceleratedUnitId ? String(raw.acceleratedUnitId) : null,
     acceleratedMovesRemaining: Math.max(0, Number(raw.acceleratedMovesRemaining || 0)),
     royalCommandUnitId: raw.royalCommandUnitId ? String(raw.royalCommandUnitId) : null,
+    royalCommandAttackReady: !!raw.royalCommandAttackReady,
     postAttackMoveUnitId: raw.postAttackMoveUnitId ? String(raw.postAttackMoveUnitId) : null,
   };
 }
@@ -1385,7 +1384,7 @@ function handleMoveUnit(data, ws) {
     if (accelerated) {
       game.turnState.acceleratedMovesRemaining -= 1;
       if (game.turnState.royalCommandUnitId === unitId) {
-        sourceUnit.royalCommandAttackReady = true;
+        game.turnState.royalCommandAttackReady = true;
       }
       if (game.turnState.acceleratedMovesRemaining <= 0) {
         game.turnState.acceleratedMovesRemaining = 0;
@@ -1457,12 +1456,6 @@ function handleAttackUnit(data, ws) {
   game.turnState.attackUnitId = unitId;
   game.turnState.attackCount = Number(game.turnState.attackCount || 0) + 1;
   game.turnState.attacked = true;
-  if (attacker.royalCommandAttackReady) {
-    attacker.royalCommandAttackReady = false;
-    if (game.turnState.royalCommandUnitId === unitId) {
-      game.turnState.royalCommandUnitId = null;
-    }
-  }
   if (unitHasEffectType(attacker, 'move_after_attack_1')) {
     game.turnState.postAttackMoveUnitId = unitId;
   }
@@ -1474,6 +1467,10 @@ function handleAttackUnit(data, ws) {
     game.board[sourceIndex] = null;
     game.turnState.postAttackMoveUnitId = null;
     normalizePendingRedeploys(game);
+  }
+  if (game.turnState.royalCommandUnitId === unitId && game.turnState.royalCommandAttackReady) {
+    game.turnState.royalCommandAttackReady = false;
+    game.turnState.royalCommandUnitId = null;
   }
   const payload = {
     type: 'attack_applied',
