@@ -6243,11 +6243,6 @@ function getReachableMoveCells(instanceId) {
   const unit = matchState.board[startIndex];
   if (!unit || unit.owner !== matchState.currentPlayer || unit.actionLocked) return [];
 
-  if (matchState.turnState?.postAttackMoveUnitId) {
-    if (matchState.turnState.postAttackMoveUnitId !== unit.instanceId) return [];
-    return getOrthogonalNeighbors(startIndex).filter((idx) => !matchState.board[idx]);
-  }
-
   const hasAcceleratedMoves = !!(matchState.turnState?.acceleratedUnitId && matchState.turnState.acceleratedMovesRemaining > 0);
   if (hasAcceleratedMoves) {
     if (unit.instanceId !== matchState.turnState.acceleratedUnitId) return [];
@@ -7720,18 +7715,6 @@ function confirmPendingBoardAction() {
     return;
   }
   if (pendingAction.type === 'postAttackMove') {
-    if (roomSyncState.enabled && isRoomActiveBattlePlayer() && typeof roomSyncState.onMoveRequest === 'function') {
-      roomSyncState.pendingMoveRequest = true;
-      renderMatchArea();
-      roomSyncState.onMoveRequest({
-        player: matchState.currentPlayer,
-        unitId: pendingAction.unitId,
-        sourceIndex: pendingAction.sourceIndex,
-        targetIndex: pendingAction.targetIndex,
-        postAttackMove: true,
-      });
-      return;
-    }
     applyPendingPostAttackMove(pendingAction);
     return;
   }
@@ -8129,19 +8112,11 @@ function applyRoomMove(data = {}) {
   if (!unitId || Number.isNaN(sourceIndex) || Number.isNaN(targetIndex)) return false;
 
   const pendingAction = getPendingAction();
-  const isPostAttackMove = !!data.postAttackMove || getPostAttackMoveUnitId() === unitId;
   clearRoomPendingRequests();
   if (data.currentPlayer) matchState.currentPlayer = data.currentPlayer;
 
-  if (pendingAction && (pendingAction.type === 'move' || pendingAction.type === 'postAttackMove') && pendingAction.unitId === unitId && Number(pendingAction.targetIndex) === targetIndex) {
-    if (pendingAction.type === 'postAttackMove' || isPostAttackMove) {
-      applyPendingPostAttackMove({
-        ...pendingAction,
-        type: 'postAttackMove',
-      });
-    } else {
-      applyPendingMove(pendingAction);
-    }
+  if (pendingAction && pendingAction.type === 'move' && pendingAction.unitId === unitId && Number(pendingAction.targetIndex) === targetIndex) {
+    applyPendingMove(pendingAction);
     return true;
   }
 
@@ -8151,21 +8126,13 @@ function applyRoomMove(data = {}) {
   const unit = matchState.board[resolvedSourceIndex];
   if (!unit || (actorPlayer && unit.owner !== actorPlayer)) return false;
 
-  const resolvedAction = {
-    type: isPostAttackMove ? 'postAttackMove' : 'move',
+  applyPendingMove({
+    type: 'move',
     unitId,
-    unitName: unit.name,
-    sourceIndex: resolvedSourceIndex,
     targetIndex,
     fromLabel: formatCellLabel(resolvedSourceIndex),
     toLabel: formatCellLabel(targetIndex),
-  };
-
-  if (isPostAttackMove) {
-    applyPendingPostAttackMove(resolvedAction);
-  } else {
-    applyPendingMove(resolvedAction);
-  }
+  });
   return true;
 }
 

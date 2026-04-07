@@ -732,7 +732,7 @@ ${roomLog.textContent}` : line;
           targetIndex,
         });
       },
-      onMoveRequest: ({ player, unitId, sourceIndex, targetIndex, postAttackMove = false }) => {
+      onMoveRequest: ({ player, unitId, sourceIndex, targetIndex }) => {
         sendMessage({
           type: 'move_unit',
           roomId: currentRoomId,
@@ -740,7 +740,6 @@ ${roomLog.textContent}` : line;
           unitId,
           sourceIndex,
           targetIndex,
-          postAttackMove,
         });
       },
       onAttackRequest: ({ player, unitId, sourceIndex, targetIndex }) => {
