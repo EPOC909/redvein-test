@@ -173,10 +173,10 @@ const MIME_TYPES = {
 };
 
 const rooms = new Map();
-const SPECIAL_CARD_IDS = new Set(SPECIAL_CARDS.map((card) => card.card_id));
-const baseCards = loadCards().filter((card) => !SPECIAL_CARD_IDS.has(String(card?.card_id || '')));
+const baseCards = loadCards();
 const cards = [...baseCards, ...SPECIAL_CARDS];
 const cardMap = new Map(cards.map((card) => [card.card_id, card]));
+const SPECIAL_CARD_IDS = new Set(SPECIAL_CARDS.map((card) => card.card_id));
 const BASE_CARD_IDS = new Set(baseCards.map((card) => card.card_id));
 const validCardIds = new Set(cards.map((card) => card.card_id));
 const SETUP_SEQUENCE = [
@@ -311,14 +311,10 @@ function collectUnlockedCardIds(saveKey, unlockTokens) {
 
 function buildCatalogForSaveKey(saveKey, unlockTokens) {
   const unlockedCardIds = collectUnlockedCardIds(saveKey, unlockTokens);
-  const visibleCards = [];
-  const seen = new Set();
-  [...baseCards, ...SPECIAL_CARDS.filter((card) => unlockedCardIds.has(card.card_id))].forEach((card) => {
-    const cardId = String(card?.card_id || '');
-    if (!cardId || seen.has(cardId)) return;
-    seen.add(cardId);
-    visibleCards.push(card);
-  });
+  const visibleCards = [
+    ...baseCards,
+    ...SPECIAL_CARDS.filter((card) => unlockedCardIds.has(card.card_id)),
+  ];
   return {
     cards: visibleCards,
     unlockedCardIds: [...unlockedCardIds],
@@ -835,10 +831,14 @@ function getAttackTargets(game, unitId) {
       [[row, col - 1], [row, col - 2]],
       [[row, col + 1], [row, col + 2]],
     ].forEach((line) => {
-      line.forEach(([r, c]) => {
+      line.forEach(([r, c], stepIndex) => {
         if (r < 0 || r > 4 || c < 0 || c > 4) return;
         const idx = coordToIndex(r, c);
-        if (game.board[idx] && game.board[idx].owner !== game.currentPlayer) targetSet.add(idx);
+        const targetUnit = game.board[idx];
+        if (!targetUnit || targetUnit.owner === game.currentPlayer) return;
+        const distance = stepIndex + 1;
+        if (distance >= 2 && playerHasFieldEffect(game, targetUnit.owner, 'field_range_limit_adjacent_only')) return;
+        targetSet.add(idx);
       });
     });
   }
@@ -847,7 +847,11 @@ function getAttackTargets(game, unitId) {
     for (let targetCol = 0; targetCol < 5; targetCol += 1) {
       if (targetCol === col) continue;
       const idx = coordToIndex(row, targetCol);
-      if (game.board[idx] && game.board[idx].owner !== game.currentPlayer) targetSet.add(idx);
+      const targetUnit = game.board[idx];
+      if (!targetUnit || targetUnit.owner === game.currentPlayer) continue;
+      const distance = Math.abs(targetCol - col);
+      if (distance >= 2 && playerHasFieldEffect(game, targetUnit.owner, 'field_range_limit_adjacent_only')) continue;
+      targetSet.add(idx);
     }
   }
 
