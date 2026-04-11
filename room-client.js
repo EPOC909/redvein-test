@@ -65,6 +65,7 @@
   let roomActionStatus = null;
   let roomRematchButton = null;
   let roomResetButton = null;
+  let roomSurrenderButton = null;
   let roomCloseButton = null;
 
   function loadSavedDecks() {
@@ -301,6 +302,7 @@ ${roomLog.textContent}` : line;
       <div class="room-action-buttons">
         <button type="button" class="button primary" data-room-action="rematch">再戦を申請（相手の承認が必要）</button>
         <button type="button" class="button secondary" data-room-action="reset">リセットを申請（相手の承認が必要）</button>
+        <button type="button" class="button secondary danger" data-room-action="surrender">降参する</button>
         <button type="button" class="button secondary danger" data-room-action="close">ルーム終了</button>
       </div>
       <div class="room-action-status" id="roomActionStatus">再戦とリセットは P1 / P2 の両方が申請した時だけ実行されます。</div>
@@ -310,10 +312,12 @@ ${roomLog.textContent}` : line;
     roomActionStatus = roomActionBox.querySelector('#roomActionStatus');
     roomRematchButton = roomActionBox.querySelector('[data-room-action="rematch"]');
     roomResetButton = roomActionBox.querySelector('[data-room-action="reset"]');
+    roomSurrenderButton = roomActionBox.querySelector('[data-room-action="surrender"]');
     roomCloseButton = roomActionBox.querySelector('[data-room-action="close"]');
 
     roomRematchButton?.addEventListener('click', requestRematchToggle);
     roomResetButton?.addEventListener('click', requestResetToggle);
+    roomSurrenderButton?.addEventListener('click', requestSurrender);
     roomCloseButton?.addEventListener('click', closeCurrentRoom);
   }
 
@@ -325,7 +329,7 @@ ${roomLog.textContent}` : line;
 
   function updateRoomActionUi() {
     ensureRoomActionPanel();
-    if (!roomActionBox || !roomActionStatus || !roomRematchButton || !roomResetButton || !roomCloseButton) return;
+    if (!roomActionBox || !roomActionStatus || !roomRematchButton || !roomResetButton || !roomSurrenderButton || !roomCloseButton) return;
 
     const isPlayer = currentRole === 'p1' || currentRole === 'p2';
     const isP1 = currentRole === 'p1';
@@ -333,6 +337,7 @@ ${roomLog.textContent}` : line;
     const hasRoom = !!currentRoomId;
     const canRematch = hasRoom && connected && isPlayer && currentRoomState === 'finished';
     const canReset = hasRoom && connected && isPlayer && (currentRoomState === 'playing' || currentRoomState === 'finished');
+    const canSurrender = hasRoom && connected && isPlayer && currentRoomState === 'playing';
     const canClose = hasRoom && connected && isP1;
     const myRole = currentRole === 'p1' || currentRole === 'p2' ? currentRole : '';
     const myRematch = myRole ? !!currentControlRequests.rematch?.[myRole] : false;
@@ -340,10 +345,12 @@ ${roomLog.textContent}` : line;
 
     roomRematchButton.disabled = !canRematch;
     roomResetButton.disabled = !canReset;
+    roomSurrenderButton.disabled = !canSurrender;
     roomCloseButton.disabled = !canClose;
 
     roomRematchButton.textContent = myRematch ? '再戦申請を取り消す' : '再戦を申請（相手の承認が必要）';
     roomResetButton.textContent = myReset ? 'リセット申請を取り消す' : 'リセットを申請（相手の承認が必要）';
+    roomSurrenderButton.textContent = '降参する';
 
     roomActionBox.classList.toggle('match-finished', currentRoomState === 'finished');
     roomActionBox.classList.toggle('match-playing', currentRoomState === 'playing');
@@ -354,7 +361,7 @@ ${roomLog.textContent}` : line;
       return;
     }
     if (currentRole === 'spectator') {
-      roomActionStatus.textContent = '観戦者は試合操作できません。再戦とリセットは、P1 と P2 の両方が申請した時だけ実行されます。';
+      roomActionStatus.textContent = '観戦者は試合操作できません。再戦とリセットは、P1 と P2 の両方が申請した時だけ実行されます。降参はプレイヤー本人だけが実行できます。';
       return;
     }
     if (currentRoomState === 'finished') {
@@ -362,14 +369,14 @@ ${roomLog.textContent}` : line;
       return;
     }
     if (currentRoomState === 'playing') {
-      roomActionStatus.textContent = `対戦中です。盤面を最初からやり直すには、P1 と P2 の両方が「リセットを申請」を押してください。現在の承認状況 → リセット: ${summarizeApproval(currentControlRequests.reset)}。再戦は試合終了後に使えます。ルーム終了は P1 のみです。`;
+      roomActionStatus.textContent = `対戦中です。盤面を最初からやり直すには、P1 と P2 の両方が「リセットを申請」を押してください。現在の承認状況 → リセット: ${summarizeApproval(currentControlRequests.reset)}。再戦は試合終了後に使えます。降参はプレイヤー本人だけが即時実行できます。ルーム終了は P1 のみです。`;
       return;
     }
     if (currentRoomState === 'ready') {
       roomActionStatus.textContent = '試合開始前です。リセットは P1 と P2 の両方が申請した時だけ実行されます。ルーム終了は P1 のみです。';
       return;
     }
-    roomActionStatus.textContent = '再戦とリセットは、P1 と P2 の両方が申請した時だけ実行されます。ルーム終了は P1 のみです。';
+    roomActionStatus.textContent = '再戦とリセットは、P1 と P2 の両方が申請した時だけ実行されます。降参は対戦中のプレイヤー本人だけが実行できます。ルーム終了は P1 のみです。';
   }
 
   async function sendRoomActionRequest(action, requested = true) {
@@ -411,6 +418,22 @@ ${roomLog.textContent}` : line;
     const requested = !currentControlRequests.reset?.[myRole];
     writeLog(requested ? 'リセットを申請しました。相手も承認すると盤面が最初からやり直しになります。' : 'リセット申請を取り消しました。');
     sendRoomActionRequest('reset', requested);
+  }
+
+  function requestSurrender() {
+    const myRole = currentRole === 'p1' || currentRole === 'p2' ? currentRole : '';
+    if (!myRole) {
+      writeLog('観戦者は降参できません。');
+      return;
+    }
+    if (currentRoomState !== 'playing') {
+      writeLog('降参は対戦中だけ実行できます。');
+      return;
+    }
+    const ok = confirm('この試合を降参します。押した側の敗北で即終了します。よろしいですか？');
+    if (!ok) return;
+    writeLog('降参を送信しました。');
+    sendRoomActionRequest('surrender', true);
   }
 
   function leaveClosedRoomLocally(message) {

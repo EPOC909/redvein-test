@@ -831,14 +831,10 @@ function getAttackTargets(game, unitId) {
       [[row, col - 1], [row, col - 2]],
       [[row, col + 1], [row, col + 2]],
     ].forEach((line) => {
-      line.forEach(([r, c], stepIndex) => {
+      line.forEach(([r, c]) => {
         if (r < 0 || r > 4 || c < 0 || c > 4) return;
         const idx = coordToIndex(r, c);
-        const targetUnit = game.board[idx];
-        if (!targetUnit || targetUnit.owner === game.currentPlayer) return;
-        const distance = stepIndex + 1;
-        if (distance >= 2 && playerHasFieldEffect(game, targetUnit.owner, 'field_range_limit_adjacent_only')) return;
-        targetSet.add(idx);
+        if (game.board[idx] && game.board[idx].owner !== game.currentPlayer) targetSet.add(idx);
       });
     });
   }
@@ -847,11 +843,7 @@ function getAttackTargets(game, unitId) {
     for (let targetCol = 0; targetCol < 5; targetCol += 1) {
       if (targetCol === col) continue;
       const idx = coordToIndex(row, targetCol);
-      const targetUnit = game.board[idx];
-      if (!targetUnit || targetUnit.owner === game.currentPlayer) continue;
-      const distance = Math.abs(targetCol - col);
-      if (distance >= 2 && playerHasFieldEffect(game, targetUnit.owner, 'field_range_limit_adjacent_only')) continue;
-      targetSet.add(idx);
+      if (game.board[idx] && game.board[idx].owner !== game.currentPlayer) targetSet.add(idx);
     }
   }
 
@@ -1670,7 +1662,7 @@ function handleRoomActionRequest(data, ws) {
     return;
   }
 
-  if (!['rematch', 'reset'].includes(action)) {
+  if (!['rematch', 'reset', 'surrender'].includes(action)) {
     send(ws, { type: 'error', message: '未対応のルーム操作です。' });
     return;
   }
@@ -1688,6 +1680,18 @@ function handleRoomActionRequest(data, ws) {
   }
   if (action === 'reset' && !room.game) {
     send(ws, { type: 'error', message: 'リセットできる試合がありません。' });
+    return;
+  }
+  if (action === 'surrender') {
+    if (!room.game || room.game.phase === 'finished' || room.roomState !== 'playing') {
+      send(ws, { type: 'error', message: '降参は対戦中だけ実行できます。' });
+      return;
+    }
+    clearRoomControlRequests(room);
+    const loserLabel = meta.role === 'p1' ? 'プレイヤー1' : 'プレイヤー2';
+    const winnerLabel = meta.role === 'p1' ? 'プレイヤー2' : 'プレイヤー1';
+    const finishMessage = `${loserLabel}が降参しました。${winnerLabel}の勝利です。`;
+    finalizeRoomGameIfNeeded(room, finishMessage);
     return;
   }
 
