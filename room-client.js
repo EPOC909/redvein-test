@@ -300,12 +300,12 @@ ${roomLog.textContent}` : line;
     roomActionBox.innerHTML = `
       <h3>試合操作</h3>
       <div class="room-action-buttons">
-        <button type="button" class="button primary" data-room-action="rematch">再戦を申請（相手の承認が必要）</button>
-        <button type="button" class="button secondary" data-room-action="reset">リセットを申請（相手の承認が必要）</button>
+        <button type="button" class="button primary" data-room-action="rematch" style="display:none" aria-hidden="true" tabindex="-1">再戦を申請（相手の承認が必要）</button>
+        <button type="button" class="button secondary" data-room-action="reset" style="display:none" aria-hidden="true" tabindex="-1">リセットを申請（相手の承認が必要）</button>
         <button type="button" class="button secondary danger" data-room-action="surrender">降参する</button>
         <button type="button" class="button secondary danger" data-room-action="close">ルーム終了</button>
       </div>
-      <div class="room-action-status" id="roomActionStatus">再戦とリセットは P1 / P2 の両方が申請した時だけ実行されます。</div>
+      <div class="room-action-status" id="roomActionStatus">降参は対戦中のプレイヤー本人だけ実行できます。ルーム終了は P1 のみです。</div>
     `;
     anchor.appendChild(roomActionBox);
 
@@ -350,6 +350,8 @@ ${roomLog.textContent}` : line;
 
     roomRematchButton.textContent = myRematch ? '再戦申請を取り消す' : '再戦を申請（相手の承認が必要）';
     roomResetButton.textContent = myReset ? 'リセット申請を取り消す' : 'リセットを申請（相手の承認が必要）';
+    roomRematchButton.style.display = 'none';
+    roomResetButton.style.display = 'none';
     roomSurrenderButton.textContent = '降参する';
 
     roomActionBox.classList.toggle('match-finished', currentRoomState === 'finished');
@@ -361,22 +363,22 @@ ${roomLog.textContent}` : line;
       return;
     }
     if (currentRole === 'spectator') {
-      roomActionStatus.textContent = '観戦者は試合操作できません。再戦とリセットは、P1 と P2 の両方が申請した時だけ実行されます。降参はプレイヤー本人だけが実行できます。';
+      roomActionStatus.textContent = '観戦者は試合操作できません。降参は対戦中のプレイヤー本人だけ、ルーム終了は P1 のみ実行できます。';
       return;
     }
     if (currentRoomState === 'finished') {
-      roomActionStatus.textContent = `試合終了後です。再戦は P1 と P2 の両方が「再戦を申請」を押すと始まります。現在の承認状況 → 再戦: ${summarizeApproval(currentControlRequests.rematch)} / リセット: ${summarizeApproval(currentControlRequests.reset)}。ルーム終了は P1 のみ実行できます。`;
+      roomActionStatus.textContent = `試合終了後です。降参は使えません。ルーム終了は P1 のみ実行できます。`;
       return;
     }
     if (currentRoomState === 'playing') {
-      roomActionStatus.textContent = `対戦中です。盤面を最初からやり直すには、P1 と P2 の両方が「リセットを申請」を押してください。現在の承認状況 → リセット: ${summarizeApproval(currentControlRequests.reset)}。再戦は試合終了後に使えます。降参はプレイヤー本人だけが即時実行できます。ルーム終了は P1 のみです。`;
+      roomActionStatus.textContent = `対戦中です。降参はプレイヤー本人だけが即時実行できます。ルーム終了は P1 のみです。`;
       return;
     }
     if (currentRoomState === 'ready') {
-      roomActionStatus.textContent = '試合開始前です。リセットは P1 と P2 の両方が申請した時だけ実行されます。ルーム終了は P1 のみです。';
+      roomActionStatus.textContent = '試合開始前です。ルーム終了は P1 のみです。';
       return;
     }
-    roomActionStatus.textContent = '再戦とリセットは、P1 と P2 の両方が申請した時だけ実行されます。降参は対戦中のプレイヤー本人だけが実行できます。ルーム終了は P1 のみです。';
+    roomActionStatus.textContent = '降参は対戦中のプレイヤー本人だけが実行できます。ルーム終了は P1 のみです。';
   }
 
   async function sendRoomActionRequest(action, requested = true) {
