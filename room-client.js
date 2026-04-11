@@ -422,6 +422,7 @@ ${roomLog.textContent}` : line;
     sendRoomActionRequest('reset', requested);
   }
 
+
   function requestSurrender() {
     const myRole = currentRole === 'p1' || currentRole === 'p2' ? currentRole : '';
     if (!myRole) {
