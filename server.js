@@ -1365,7 +1365,7 @@ function applyServerSideItemEffects(game, playerKey, cardId, targetIndex) {
     }
     case 'untargetable_by_enemy_items_turn_1': {
       if (!targetUnit || targetUnit.owner !== playerKey) return;
-      targetUnit.untargetableByEnemyItemsUntilTurnStartOf = playerKey === 'player1' ? 'player2' : 'player1';
+      targetUnit.untargetableByEnemyItemsUntilTurnStartOf = playerKey;
       break;
     }
     case 'negate_buffs_and_heal_until_next_opponent_round': {

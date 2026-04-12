@@ -1075,6 +1075,43 @@ function updateActionGuide() {
 }
 
 
+
+function injectStatusBadgeStyles() {
+  if (document.getElementById('redveinStatusBadgeStyle')) return;
+  const style = document.createElement('style');
+  style.id = 'redveinStatusBadgeStyle';
+  style.textContent = `
+    .unit-status-badge.field-immune {
+      background: linear-gradient(180deg, rgba(66, 130, 255, 0.95), rgba(28, 78, 194, 0.95));
+      border-color: rgba(186, 220, 255, 0.88);
+      box-shadow: 0 0 12px rgba(73, 132, 255, 0.28);
+      color: #f7fbff;
+    }
+    .unit-status-badge.item-untargetable {
+      background: linear-gradient(180deg, rgba(24, 166, 138, 0.96), rgba(12, 120, 97, 0.96));
+      border-color: rgba(176, 255, 235, 0.88);
+      box-shadow: 0 0 12px rgba(27, 180, 148, 0.24);
+      color: #f5fffd;
+    }
+    .unit-status-badge.item-destroy-immune {
+      background: linear-gradient(180deg, rgba(214, 104, 39, 0.96), rgba(161, 54, 19, 0.96));
+      border-color: rgba(255, 214, 179, 0.9);
+      box-shadow: 0 0 12px rgba(214, 104, 39, 0.24);
+      color: #fff8f3;
+    }
+    .unit-status-badge.field-immune .status-badge-icon,
+    .unit-status-badge.item-untargetable .status-badge-icon,
+    .unit-status-badge.item-destroy-immune .status-badge-icon,
+    .unit-status-badge.field-immune .status-badge-value,
+    .unit-status-badge.item-untargetable .status-badge-value,
+    .unit-status-badge.item-destroy-immune .status-badge-value {
+      color: inherit;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 function injectItemPickerStyles() {
   if (document.getElementById('redveinItemPickerStyle')) return;
   const style = document.createElement('style');
@@ -4601,7 +4638,7 @@ function getUnitStatusBadges(unit, boardIndex = null) {
     badges.push({ kind: 'field-immune', title: '敵の環境カードの効果を受けません' });
   }
   if (isUnitUntargetableByEnemyItems(unit)) {
-    badges.push({ kind: 'item-untargetable', title: 'このターン、敵アイテムの対象になりません' });
+    badges.push({ kind: 'item-untargetable', title: '次の相手ラウンド終了時まで、敵アイテムの対象になりません' });
   }
   if (isUnitProtectedFromEnemyItemDestroy(unit, boardIndex)) {
     badges.push({ kind: 'item-destroy-immune', title: '敵アイテムの破壊効果を受けません' });
@@ -6346,9 +6383,9 @@ function applyItemEffect(card, playerKey) {
     }
     case 'untargetable_by_enemy_items_turn_1': {
       if (!targetUnit) return false;
-      targetUnit.untargetableByEnemyItemsUntilTurnStartOf = getOpponent(playerKey);
+      targetUnit.untargetableByEnemyItemsUntilTurnStartOf = playerKey;
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
-      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} はこのターン、敵アイテムの対象になりません`);
+      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次の相手ラウンド終了時まで、敵アイテムの対象になりません`);
       return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'SAFE' }] : [] });
     }
     case 'negate_buffs_and_heal_until_next_opponent_round': {
@@ -6893,6 +6930,7 @@ function renderPlayerPanels() {
 }
 
 function renderBoard() {
+  injectStatusBadgeStyles();
   const moveTargets = matchState.actionMode === 'move' && matchState.selectedUnitId ? getReachableMoveCells(matchState.selectedUnitId) : [];
   const attackTargets = matchState.actionMode === 'attack' && matchState.selectedUnitId ? getAttackTargets(matchState.selectedUnitId) : [];
   const postAttackMoveTargets = getPostAttackMoveUnitId() ? getPostAttackMoveCells(getPostAttackMoveUnitId()) : [];
