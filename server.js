@@ -635,6 +635,12 @@ function createControlRequests() {
   };
 }
 
+function createPlayerStatus() {
+  return {
+    negateEnemyFieldUntilOwnTurnStart: false,
+  };
+}
+
 function clearRoomControlRequests(room) {
   room.controlRequests = createControlRequests();
 }
@@ -872,6 +878,9 @@ function createUnitState(cardId, owner, forcedInstanceId = '') {
     guardBlockUsed: false,
     negateDamageUsed: false,
     surviveOnceUsed: false,
+    healedInRound: 0,
+    untargetableByEnemyItemsUntilTurnStartOf: '',
+    negateBuffsAndHealUntilTurnStartOf: '',
   };
 }
 
@@ -905,6 +914,10 @@ function createInitialGameState(room) {
     pendingRevives: [],
     pendingRedeploys: [],
     winner: '',
+    playerStatus: {
+      player1: createPlayerStatus(),
+      player2: createPlayerStatus(),
+    },
   };
 }
 
@@ -987,7 +1000,23 @@ function unitHasEffectType(unit, effectType) {
   return getCardMeta(unit?.cardId)?.effect_type === effectType;
 }
 
+function unitIgnoresEnemyFieldEffects(unit) {
+  const effectType = getCardMeta(unit?.cardId)?.effect_type || '';
+  return effectType === 'ignore_enemy_field_effects_and_center_guard_1'
+    || effectType.startsWith('ignore_enemy_field_effects_self');
+}
+
+function getPlayerStatus(game, playerKey) {
+  if (!game.playerStatus) {
+    game.playerStatus = { player1: createPlayerStatus(), player2: createPlayerStatus() };
+  }
+  if (!game.playerStatus[playerKey]) game.playerStatus[playerKey] = createPlayerStatus();
+  return game.playerStatus[playerKey];
+}
+
 function playerHasFieldEffect(game, playerKey, effectType) {
+  const opponentStatus = getPlayerStatus(game, playerKey === 'player1' ? 'player2' : 'player1');
+  if (opponentStatus?.negateEnemyFieldUntilOwnTurnStart) return false;
   return getCardMeta(game.fieldIds?.[playerKey])?.effect_type === effectType;
 }
 
@@ -1035,8 +1064,13 @@ function findUnitIndexById(game, unitId) {
   return game.board.findIndex((unit) => unit && unit.instanceId === unitId);
 }
 
-function currentPlayerCannotAttackAfterMove(game) {
-  return !!(game.phase === 'battle' && game.turnState?.moved && countFieldEffects(game, 'field_no_attack_after_move') > 0);
+function currentPlayerCannotAttackAfterMove(game, unit = null) {
+  if (!(game.phase === 'battle' && game.turnState?.moved)) return false;
+  const playerKey = game.currentPlayer;
+  const ownFieldBlocks = playerHasFieldEffect(game, playerKey, 'field_no_attack_after_move');
+  const enemyFieldBlocks = playerHasFieldEffect(game, playerKey === 'player1' ? 'player2' : 'player1', 'field_no_attack_after_move')
+    && !(unit && unitIgnoresEnemyFieldEffects(unit));
+  return !!(ownFieldBlocks || enemyFieldBlocks);
 }
 
 function getReachableMoveCells(game, unitId) {
@@ -1085,11 +1119,12 @@ function getReachableMoveCells(game, unitId) {
 }
 
 function getAttackTargets(game, unitId) {
-  if (game.phase !== 'battle' || currentPlayerCannotAttackAfterMove(game)) return [];
+  if (game.phase !== 'battle') return [];
   const startIndex = findUnitIndexById(game, unitId);
   if (startIndex < 0) return [];
   const unit = game.board[startIndex];
   if (!unit || unit.owner !== game.currentPlayer || unit.actionLocked || unit.attackLocked) return [];
+  if (currentPlayerCannotAttackAfterMove(game, unit)) return [];
 
   const attackUnitId = game.turnState.attackUnitId || null;
   const attackCount = Number(game.turnState.attackCount || 0);
@@ -1127,7 +1162,11 @@ function getAttackTargets(game, unitId) {
     }
   }
 
-  return [...targetSet];
+  const enemyFogActive = playerHasFieldEffect(game, game.currentPlayer === 'player1' ? 'player2' : 'player1', 'field_range_limit_adjacent_only')
+    && !unitIgnoresEnemyFieldEffects(unit);
+  if (!enemyFogActive) return [...targetSet];
+  const adjacent = new Set(getOrthogonalNeighbors(startIndex));
+  return [...targetSet].filter((idx) => adjacent.has(idx));
 }
 
 function effectBoostForItems(game, playerKey) {
@@ -1150,6 +1189,32 @@ function clearTempEffectsForPlayer(game, playerKey) {
     unit.tempAtkBuff = 0;
     unit.tempMoveBuff = 0;
   });
+}
+
+function clearExpiredStartOfTurnEffects(game, playerKey) {
+  const playerStatus = getPlayerStatus(game, playerKey);
+  if (playerStatus?.negateEnemyFieldUntilOwnTurnStart) {
+    playerStatus.negateEnemyFieldUntilOwnTurnStart = false;
+  }
+  game.board.forEach((unit) => {
+    if (!unit) return;
+    if (unit.untargetableByEnemyItemsUntilTurnStartOf === playerKey) {
+      unit.untargetableByEnemyItemsUntilTurnStartOf = '';
+    }
+    if (unit.negateBuffsAndHealUntilTurnStartOf === playerKey) {
+      unit.negateBuffsAndHealUntilTurnStartOf = '';
+    }
+  });
+}
+
+function healUnitForServer(unit, amount, round) {
+  if (!unit || amount <= 0) return { healed: 0, blocked: false };
+  if (unit.negateBuffsAndHealUntilTurnStartOf) return { healed: 0, blocked: true };
+  const before = Number(unit.currentHp || 0);
+  unit.currentHp = Math.min(Number(unit.maxHp || 0), before + Number(amount || 0));
+  const healed = Math.max(0, unit.currentHp - before);
+  if (healed > 0) unit.healedInRound = Number(round || 0);
+  return { healed, blocked: false };
 }
 
 function refreshTurnStatusForPlayer(game, playerKey) {
@@ -1182,6 +1247,7 @@ function beginTurn(game, playerKey) {
   game.phase = 'battle';
   game.itemPhaseOpen = true;
   game.itemUsed = false;
+  clearExpiredStartOfTurnEffects(game, playerKey);
   game.turnState = createTurnState();
   clearTempEffectsForPlayer(game, playerKey);
   refreshTurnStatusForPlayer(game, playerKey);
@@ -1196,6 +1262,7 @@ function getRequiredItemTargetType(card) {
     case 'shield_single_2_once':
     case 'move_twice_single':
     case 'royal_command_single':
+    case 'untargetable_by_enemy_items_turn_1':
       return 'ally';
     case 'damage_single_1':
     case 'damage_single_2':
@@ -1203,6 +1270,7 @@ function getRequiredItemTargetType(card) {
     case 'destroy_single_no_revive':
     case 'disable_attack_next_round':
     case 'stun_single_1_turn':
+    case 'negate_buffs_and_heal_until_next_opponent_round':
       return 'enemy';
     case 'damage_aoe_target_radius_1':
       return 'occupied';
@@ -1223,6 +1291,9 @@ function validateItemTarget(game, playerKey, card, targetIndex) {
   if (!targetUnit) return false;
 
   if (isOffensiveItem(card) && playerHasFieldEffect(game, targetUnit.owner, 'field_range_limit_adjacent_only') && !hasAdjacentUnitOwnedBy(game, targetIndex, playerKey)) {
+    return false;
+  }
+  if (required === 'enemy' && targetUnit.untargetableByEnemyItemsUntilTurnStartOf) {
     return false;
   }
 
@@ -1253,13 +1324,15 @@ function applyServerSideItemEffects(game, playerKey, cardId, targetIndex) {
     }
     case 'heal_single_2': {
       if (!targetUnit || targetUnit.owner !== playerKey) return;
-      targetUnit.currentHp = Math.min(targetUnit.maxHp, Number(targetUnit.currentHp || 0) + 2);
+      healUnitForServer(targetUnit, 2, game.round);
       break;
     }
     case 'heal_single_3_atk_up_turn_1': {
       if (!targetUnit || targetUnit.owner !== playerKey) return;
-      targetUnit.currentHp = Math.min(targetUnit.maxHp, Number(targetUnit.currentHp || 0) + 3);
-      targetUnit.tempAtkBuff = Number(targetUnit.tempAtkBuff || 0) + 1;
+      healUnitForServer(targetUnit, 3, game.round);
+      if (!targetUnit.negateBuffsAndHealUntilTurnStartOf) {
+        targetUnit.tempAtkBuff = Number(targetUnit.tempAtkBuff || 0) + 1;
+      }
       break;
     }
     case 'royal_command_single': {
@@ -1284,6 +1357,20 @@ function applyServerSideItemEffects(game, playerKey, cardId, targetIndex) {
       if (!targetUnit || targetUnit.owner !== playerKey) return;
       const amount = 2 + effectBoost;
       targetUnit.singleUseDamageReduction = Math.max(Number(targetUnit.singleUseDamageReduction || 0), amount);
+      break;
+    }
+    case 'negate_enemy_field_until_next_opponent_round': {
+      getPlayerStatus(game, playerKey).negateEnemyFieldUntilOwnTurnStart = true;
+      break;
+    }
+    case 'untargetable_by_enemy_items_turn_1': {
+      if (!targetUnit || targetUnit.owner !== playerKey) return;
+      targetUnit.untargetableByEnemyItemsUntilTurnStartOf = playerKey === 'player1' ? 'player2' : 'player1';
+      break;
+    }
+    case 'negate_buffs_and_heal_until_next_opponent_round': {
+      if (!targetUnit || targetUnit.owner === playerKey) return;
+      targetUnit.negateBuffsAndHealUntilTurnStartOf = playerKey;
       break;
     }
     default:
@@ -1320,6 +1407,9 @@ function sanitizeBoardSnapshot(board) {
       guardBlockUsed: !!cell.guardBlockUsed,
       negateDamageUsed: !!cell.negateDamageUsed,
       surviveOnceUsed: !!cell.surviveOnceUsed,
+      healedInRound: Math.max(0, Number(cell.healedInRound || 0)),
+      untargetableByEnemyItemsUntilTurnStartOf: cell.untargetableByEnemyItemsUntilTurnStartOf ? String(cell.untargetableByEnemyItemsUntilTurnStartOf) : '',
+      negateBuffsAndHealUntilTurnStartOf: cell.negateBuffsAndHealUntilTurnStartOf ? String(cell.negateBuffsAndHealUntilTurnStartOf) : '',
     };
   });
 }
@@ -1386,6 +1476,9 @@ function mergePublicStateSnapshot(room, payload, playerKey) {
         .filter((id) => validCardIds.has(id));
     }
     if (typeof info.fieldId === 'string' && validCardIds.has(info.fieldId)) room.game.fieldIds[key] = info.fieldId;
+    if (typeof info.negateEnemyFieldUntilOwnTurnStart === 'boolean') {
+      getPlayerStatus(room.game, key).negateEnemyFieldUntilOwnTurnStart = info.negateEnemyFieldUntilOwnTurnStart;
+    }
   });
 
   room.updatedAt = Date.now();
@@ -1939,6 +2032,22 @@ function handleRoomActionRequest(data, ws) {
       }
     });
     rooms.delete(room.roomId);
+    return;
+  }
+
+  if (action === 'surrender') {
+    if (!['p1', 'p2'].includes(meta.role)) {
+      send(ws, { type: 'error', message: '観戦者はこの操作を実行できません。' });
+      return;
+    }
+    if (!room.game || room.game.phase === 'finished') {
+      send(ws, { type: 'error', message: '降参できる試合がありません。' });
+      return;
+    }
+    const loser = meta.role === 'p1' ? 'player1' : 'player2';
+    const winner = loser === 'player1' ? 'player2' : 'player1';
+    clearRoomControlRequests(room);
+    finalizeRoomGameIfNeeded(room, `${loser === 'player1' ? 'プレイヤー1' : 'プレイヤー2'}が降参しました。${winner === 'player1' ? 'プレイヤー1' : 'プレイヤー2'}の勝利です。`);
     return;
   }
 
