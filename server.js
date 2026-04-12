@@ -1293,7 +1293,7 @@ function validateItemTarget(game, playerKey, card, targetIndex) {
   if (isOffensiveItem(card) && playerHasFieldEffect(game, targetUnit.owner, 'field_range_limit_adjacent_only') && !hasAdjacentUnitOwnedBy(game, targetIndex, playerKey)) {
     return false;
   }
-  if (required === 'enemy' && targetUnit.untargetableByEnemyItemsUntilTurnStartOf) {
+  if ((required === 'enemy' || required === 'occupied') && targetUnit.owner !== playerKey && targetUnit.untargetableByEnemyItemsUntilTurnStartOf && isOffensiveItem(card)) {
     return false;
   }
 

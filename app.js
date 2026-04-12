@@ -1026,7 +1026,7 @@ function buildGuideState() {
     };
   }
 
-  const attackReady = !currentPlayerCannotAttackAfterMove() && !matchState.turnState?.attacked && !matchState.turnState?.attackUnitId;
+  const attackReady = !currentPlayerCannotAttackAfterMove(selectedUnit) && !matchState.turnState?.attacked && !matchState.turnState?.attackUnitId;
   const moveReady = !matchState.turnState?.moved || (matchState.turnState?.acceleratedUnitId === selectedUnit.instanceId && matchState.turnState?.acceleratedMovesRemaining > 0);
   const options = [];
   if (moveReady) options.push('移動');
@@ -2482,7 +2482,7 @@ function getSpectatorHudState() {
     } else {
       const moveText = matchState.turnState?.moved ? '移動済み' : '移動可能';
       let attackText = matchState.turnState?.attacked ? '攻撃済み' : '攻撃可能';
-      if (currentPlayerCannotAttackAfterMove()) attackText = '移動後攻撃不可';
+      if (currentPlayerCannotAttackAfterMove(getCurrentUnitForFieldRestrictionCheck())) attackText = '移動後攻撃不可';
       main = `${currentLabel} が盤面を操作中です`;
       sub = `${moveText} / ${attackText} / 最新ログ: ${latestLog}`;
       chips.push(matchState.currentPlayer === 'player1' ? 'P1 TURN' : 'P2 TURN');
@@ -4498,6 +4498,9 @@ function getStatusBadgeIcon(kind) {
   if (kind === 'move-up' || kind === 'move-down') return '➜';
   if (kind === 'move-lock') return '⛔';
   if (kind === 'action-lock' || kind === 'attack-lock') return '🚫';
+  if (kind === 'field-immune') return '界';
+  if (kind === 'item-untargetable') return '的';
+  if (kind === 'item-destroy-immune') return '破';
   return '•';
 }
 
@@ -4593,6 +4596,15 @@ function getUnitStatusBadges(unit, boardIndex = null) {
     badges.push({ kind: 'action-lock', value: '×', title: 'この手番は行動不可' });
   } else if (unit.attackLocked) {
     badges.push({ kind: 'attack-lock', value: '×', title: 'この手番は攻撃不可' });
+  }
+  if (unitIgnoresEnemyFieldEffects(unit)) {
+    badges.push({ kind: 'field-immune', title: '敵の環境カードの効果を受けません' });
+  }
+  if (isUnitUntargetableByEnemyItems(unit)) {
+    badges.push({ kind: 'item-untargetable', title: 'このターン、敵アイテムの対象になりません' });
+  }
+  if (isUnitProtectedFromEnemyItemDestroy(unit, boardIndex)) {
+    badges.push({ kind: 'item-destroy-immune', title: '敵アイテムの破壊効果を受けません' });
   }
   return badges;
 }
@@ -5434,6 +5446,25 @@ function unitIgnoresEnemyFieldEffects(unit) {
     || effectType.startsWith('ignore_enemy_field_effects_self');
 }
 
+function isUnitProtectedFromEnemyItemDestroy(unit, boardIndex = null) {
+  if (!unit || boardIndex == null) return false;
+  if (isPointZone(boardIndex) && playerHasFieldEffect(unit.owner, 'field_center_allies_cannot_be_destroyed_by_enemy_items')) {
+    return true;
+  }
+  return false;
+}
+
+function getCurrentUnitForFieldRestrictionCheck() {
+  const selected = getSelectedUnit();
+  if (selected && selected.owner === matchState.currentPlayer) return selected;
+  const movedUnitId = matchState.turnState?.movedUnitId || null;
+  if (!movedUnitId) return null;
+  const movedIndex = findUnitIndexById(movedUnitId);
+  if (movedIndex < 0) return null;
+  const movedUnit = matchState.board[movedIndex];
+  return movedUnit && movedUnit.owner === matchState.currentPlayer ? movedUnit : null;
+}
+
 function markUnitHealedThisRound(unit) {
   if (!unit) return;
   unit.healedInRound = Number(matchState.round || 0);
@@ -5990,6 +6021,7 @@ function getItemSelectableTargets(card, playerKey) {
       }
       if (mode === 'any') {
         if (unit.owner === playerKey) return true;
+        if (isUnitUntargetableByEnemyItems(unit) && isOffensiveItemCard(card)) return false;
         return !isFogProtectedTargetForItem(card, playerKey, index);
       }
       return false;
@@ -6198,7 +6230,7 @@ function applyItemEffect(card, playerKey) {
       if (targetIndex == null) return false;
       const destroyedUnit = matchState.board[targetIndex];
       if (!destroyedUnit) return false;
-      if (isPointZone(targetIndex) && playerHasFieldEffect(destroyedUnit.owner, 'field_center_allies_cannot_be_destroyed_by_enemy_items')) {
+      if (isUnitProtectedFromEnemyItemDestroy(destroyedUnit, targetIndex)) {
         addLog(`${actorLabel}: ${card.card_name} は ${destroyedUnit.name} に使われましたが、環境カードで破壊を防がれました`);
         return success({ targets: [targetIndex], impacts: [{ index: targetIndex, kind: 'buff', label: 'GUARD' }] });
       }
@@ -6215,7 +6247,7 @@ function applyItemEffect(card, playerKey) {
       if (targetIndex == null) return false;
       const destroyedUnit = matchState.board[targetIndex];
       if (!destroyedUnit) return false;
-      if (isPointZone(targetIndex) && playerHasFieldEffect(destroyedUnit.owner, 'field_center_allies_cannot_be_destroyed_by_enemy_items')) {
+      if (isUnitProtectedFromEnemyItemDestroy(destroyedUnit, targetIndex)) {
         addLog(`${actorLabel}: ${card.card_name} は ${destroyedUnit.name} に使われましたが、環境カードで破壊を防がれました`);
         return success({ targets: [targetIndex], impacts: [{ index: targetIndex, kind: 'buff', label: 'GUARD' }] });
       }
@@ -6637,7 +6669,7 @@ function updateSelectionInfo() {
     const extraAttackText = matchState.turnState?.attackUnitId === selectedUnit.instanceId && unitHasEffectType(selectedUnit, 'double_attack') && Number(matchState.turnState.attackCount || 0) > 0 && Number(matchState.turnState.attackCount || 0) < getAttackLimitForUnit(selectedUnit)
       ? ` / 神速剣士: 残り${getAttackLimitForUnit(selectedUnit) - Number(matchState.turnState.attackCount || 0)}回攻撃可`
       : '';
-    setSelectionInfoText(`${selectedUnit.name} を選択中 / HP ${selectedUnit.currentHp}/${selectedUnit.maxHp} / ATK ${getEffectiveAtk(selectedUnit, idx)} / MOVE ${getEffectiveMove(selectedUnit, idx)}${selectedUnit.actionLocked ? ' / この手番は行動不可' : (selectedUnit.attackLocked ? ' / この手番は攻撃不可' : '')}${cannotMoveByEffect(selectedUnit) ? ' / このユニットは移動不可' : ''}${currentPlayerCannotAttackAfterMove() ? ' / 暴風域: 移動後は攻撃不可' : ''}${matchState.turnState?.acceleratedUnitId === selectedUnit.instanceId && matchState.turnState.acceleratedMovesRemaining > 0 ? ` / ${getExtraMoveSourceName(selectedUnit.instanceId)}: 残り${matchState.turnState.acceleratedMovesRemaining}回移動可` : ''}${matchState.turnState?.royalCommandUnitId === selectedUnit.instanceId ? (matchState.turnState.royalCommandAttackReady ? ' / 王冠の勅命: 次の攻撃+1待機中' : ' / 王冠の勅命: 移動後の初回攻撃+1') : ''}${extraAttackText}`);
+    setSelectionInfoText(`${selectedUnit.name} を選択中 / HP ${selectedUnit.currentHp}/${selectedUnit.maxHp} / ATK ${getEffectiveAtk(selectedUnit, idx)} / MOVE ${getEffectiveMove(selectedUnit, idx)}${selectedUnit.actionLocked ? ' / この手番は行動不可' : (selectedUnit.attackLocked ? ' / この手番は攻撃不可' : '')}${cannotMoveByEffect(selectedUnit) ? ' / このユニットは移動不可' : ''}${currentPlayerCannotAttackAfterMove(selectedUnit) ? ' / 暴風域: 移動後は攻撃不可' : ''}${matchState.turnState?.acceleratedUnitId === selectedUnit.instanceId && matchState.turnState.acceleratedMovesRemaining > 0 ? ` / ${getExtraMoveSourceName(selectedUnit.instanceId)}: 残り${matchState.turnState.acceleratedMovesRemaining}回移動可` : ''}${matchState.turnState?.royalCommandUnitId === selectedUnit.instanceId ? (matchState.turnState.royalCommandAttackReady ? ' / 王冠の勅命: 次の攻撃+1待機中' : ' / 王冠の勅命: 移動後の初回攻撃+1') : ''}${extraAttackText}`);
     return;
   }
 
@@ -7112,8 +7144,9 @@ function renderMatchMeta() {
       const hasAccel = matchState.turnState.acceleratedUnitId && matchState.turnState.acceleratedMovesRemaining > 0;
       const accelLabel = hasAccel ? getExtraMoveSourceName(matchState.turnState.acceleratedUnitId) : '加速術';
       const moveText = hasAccel ? `移動可能（${accelLabel}: 残り${matchState.turnState.acceleratedMovesRemaining}回）` : (matchState.turnState.moved ? '移動済み' : '移動可能');
+      const currentFieldCheckUnit = getCurrentUnitForFieldRestrictionCheck();
       let attackText = '攻撃可能';
-      if (currentPlayerCannotAttackAfterMove()) {
+      if (currentPlayerCannotAttackAfterMove(currentFieldCheckUnit)) {
         attackText = '暴風域により移動後は攻撃不可';
       } else if (matchState.turnState.attackUnitId) {
         const attackIndex = findUnitIndexById(matchState.turnState.attackUnitId);
@@ -7146,10 +7179,11 @@ function renderMatchMeta() {
   const roomAttackPending = roomSyncState.enabled && roomSyncState.pendingAttackRequest;
   const roomItemPending = roomSyncState.enabled && (roomSyncState.pendingItemUseRequest || roomSyncState.pendingFinishItemPhaseRequest || roomSyncState.pendingEndTurnRequest);
   const roomActionPending = roomMovePending || roomAttackPending || roomItemPending;
+  const currentFieldCheckUnit = getCurrentUnitForFieldRestrictionCheck();
   syncActionButtonsState({
     itemPhaseDoneDisabled: roomBattleLocked || roomActionPending || !itemWindowOpen || itemSelected || !!pendingAction,
     moveDisabled: roomBattleLocked || roomActionPending || !battleActive || itemWindowOpen || pendingRedeployActive || !!pendingAction || postAttackMoveActive,
-    attackDisabled: roomBattleLocked || roomActionPending || !battleActive || itemWindowOpen || pendingRedeployActive || !!pendingAction || postAttackMoveActive || currentPlayerCannotAttackAfterMove(),
+    attackDisabled: roomBattleLocked || roomActionPending || !battleActive || itemWindowOpen || pendingRedeployActive || !!pendingAction || postAttackMoveActive || currentPlayerCannotAttackAfterMove(currentFieldCheckUnit),
     endTurnDisabled: roomBattleLocked || roomActionPending || !battleActive || itemWindowOpen || pendingRedeployActive || !!pendingAction,
     clearDisabled: !matchState.active,
     confirmItemDisabled: roomBattleLocked || roomActionPending || !itemWindowOpen || !itemCanConfirm,
@@ -8183,7 +8217,8 @@ function toggleMoveMode() {
 
 function toggleAttackMode() {
   if (isRoomBattleLocked() || matchState.phase !== 'battle' || isItemWindowOpen() || getPostAttackMoveUnit()) return;
-  if (currentPlayerCannotAttackAfterMove()) {
+  const currentFieldCheckUnit = getCurrentUnitForFieldRestrictionCheck();
+  if (currentPlayerCannotAttackAfterMove(currentFieldCheckUnit)) {
     window.alert('暴風域の効果により、移動後は攻撃できません。');
     return;
   }
