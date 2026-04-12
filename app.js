@@ -4684,7 +4684,7 @@ function generateUnlockSaveKey() {
 
 function normalizeUnlockTokens(value) {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.map((entry) => String(entry || '').trim()).filter(Boolean))].slice(0, 24);
+  return [...new Set(value.map((entry) => String(entry || '').trim()).filter(Boolean))].slice(0, 64);
 }
 
 
@@ -6312,14 +6312,10 @@ function getAttackTargets(instanceId) {
       [[row, col + 1], [row, col + 2]],
     ];
     lines.forEach((line) => {
-      line.forEach(([r, c], stepIndex) => {
+      line.forEach(([r, c]) => {
         if (r < 0 || r > 4 || c < 0 || c > 4) return;
         const idx = coordToIndex(r, c);
-        const targetUnit = matchState.board[idx];
-        if (!targetUnit || targetUnit.owner === matchState.currentPlayer) return;
-        const distance = stepIndex + 1;
-        if (distance >= 2 && playerHasFieldEffect(targetUnit.owner, 'field_range_limit_adjacent_only')) return;
-        targetSet.add(idx);
+        if (matchState.board[idx] && matchState.board[idx].owner !== matchState.currentPlayer) targetSet.add(idx);
       });
     });
   }
@@ -6328,11 +6324,9 @@ function getAttackTargets(instanceId) {
     for (let targetCol = 0; targetCol < 5; targetCol += 1) {
       if (targetCol === col) continue;
       const idx = coordToIndex(row, targetCol);
-      const targetUnit = matchState.board[idx];
-      if (!targetUnit || targetUnit.owner === matchState.currentPlayer) continue;
-      const distance = Math.abs(targetCol - col);
-      if (distance >= 2 && playerHasFieldEffect(targetUnit.owner, 'field_range_limit_adjacent_only')) continue;
-      targetSet.add(idx);
+      if (matchState.board[idx] && matchState.board[idx].owner !== matchState.currentPlayer) {
+        targetSet.add(idx);
+      }
     }
   }
 
@@ -7943,7 +7937,7 @@ function renderFieldLog(playerKey) {
   const field = cardMap.get(player.fieldId);
   if (!field) return;
   if (field.effect_type === 'field_range_limit_adjacent_only') {
-    addLog(`${PLAYER_LABEL[playerKey]}: 環境カード「${field.card_name}」により、相手は自軍ユニットに隣接する敵にしか通常攻撃できず、攻撃アイテムも同様です`);
+    addLog(`${PLAYER_LABEL[playerKey]}: 環境カード「${field.card_name}」により、攻撃アイテムは自軍ユニットに隣接する敵にしか使えません`);
     return;
   }
   if (field.effect_type === 'field_no_attack_after_move') {

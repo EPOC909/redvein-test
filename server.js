@@ -141,6 +141,266 @@ const SPECIAL_CARDS = [
     image_file: 'SP-010.png',
     unlock_only: true,
   },
+  {
+    card_id: "RV-051",
+    card_name: "幽灯の仮面",
+    type: "item",
+    rarity: "N",
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: "次の相手ラウンド終了時まで、敵の環境カードの効果を無効にする。",
+    effect_type: "negate_enemy_field_until_next_opponent_round",
+    image_file: "RV-051.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-052",
+    card_name: "灰冠の籠手",
+    type: "item",
+    rarity: "N",
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: "味方1体を選ぶ。このターン、そのユニットは敵アイテムの対象にならない。",
+    effect_type: "untargetable_by_enemy_items_turn_1",
+    image_file: "RV-052.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-053",
+    card_name: "宵喰の呪鎖",
+    type: "item",
+    rarity: "R",
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: "中央9マスにいる敵1体を選ぶ。次の相手ラウンド終了時まで、そのユニットは攻撃力上昇・ダメージ軽減・HP回復を受けず、効果も失う。",
+    effect_type: "center_silence_and_negate_buffs_heal_until_next_opponent_round",
+    image_file: "RV-053.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-054",
+    card_name: "竜骨の戦冠",
+    type: "item",
+    rarity: "R",
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: "味方1体を選ぶ。次にそのユニットが受ける「破壊」「行動不能」「攻撃不能」のいずれか1つを無効にする。",
+    effect_type: "negate_next_destroy_or_stun_or_disable_attack_once",
+    image_file: "RV-054.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-055",
+    card_name: "神授の杯冠",
+    type: "item",
+    rarity: "R",
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: "味方1体のHPを2回復し、「攻撃不能」「行動不能」「移動力-1」のいずれか1つを解除する。",
+    effect_type: "heal_2_and_cleanse_one_status",
+    image_file: "RV-055.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-056",
+    card_name: "朱蓮の鳳刀",
+    type: "battle",
+    rarity: "R",
+    hp: 3,
+    atk: 2,
+    move: 2,
+    effect_text: "HPが満タンの敵、またはこのラウンドにHPを回復した敵を攻撃すると攻撃力+1。",
+    effect_type: "atk_plus_1_vs_full_or_healed_enemy",
+    image_file: "RV-056.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-057",
+    card_name: "天輝の細剣",
+    type: "battle",
+    rarity: "R",
+    hp: 2,
+    atk: 2,
+    move: 2,
+    effect_text: "このユニットは移動の代わりに、隣接する味方1体と位置を入れ替えてよい。位置を入れ替えたターン、隣接する味方1体の「攻撃不能」「行動不能」「移動力-1」のいずれか1つを解除する。",
+    effect_type: "swap_with_adjacent_ally_and_cleanse_one_adjacent_status_on_swap",
+    image_file: "RV-057.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-058",
+    card_name: "白鱗の皇薙",
+    type: "battle",
+    rarity: "R",
+    hp: 4,
+    atk: 2,
+    move: 1,
+    effect_text: "このユニットが中央9マスにいる間、隣接する味方ユニットは敵アイテムの対象にならない。",
+    effect_type: "center_aura_adjacent_allies_untargetable_by_enemy_items",
+    image_file: "RV-058.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-059",
+    card_name: "蝕月の断鎌",
+    type: "battle",
+    rarity: "R",
+    hp: 3,
+    atk: 3,
+    move: 2,
+    effect_text: "攻撃力が上がっている敵、またはダメージ軽減を受けている敵を攻撃すると攻撃力+1。さらに、その攻撃はダメージ軽減を無視する。",
+    effect_type: "atk_plus_1_vs_buffed_or_reduced_enemy_and_ignore_reduction",
+    image_file: "RV-059.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-060",
+    card_name: "炎極の宝珠",
+    type: "item",
+    rarity: "SR",
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: "味方1体を選ぶ。このターン、そのユニットの次の攻撃でダメージを受けた敵は、次の相手ラウンド終了時までHPを回復できず、復活もできない。",
+    effect_type: "mark_attack_target_no_heal_no_revive_until_next_opponent_round",
+    image_file: "RV-060.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-061",
+    card_name: "逆鱗の印璽",
+    type: "item",
+    rarity: "SR",
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: "敵1体を選ぶ。次の相手ラウンド終了時まで、そのユニットが受ける攻撃力上昇・ダメージ軽減・HP回復を無効にする。",
+    effect_type: "negate_buffs_and_heal_until_next_opponent_round",
+    image_file: "RV-061.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-062",
+    card_name: "深澪の蒼核",
+    type: "item",
+    rarity: "SR",
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: "敵1体を選ぶ。次の相手ラウンド終了時まで、そのユニットは中央9マスにいる間、効果を失い、攻撃できない。",
+    effect_type: "silence_and_disable_attack_while_in_center_until_next_opponent_round",
+    image_file: "RV-062.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-063",
+    card_name: "星祈の聖槍",
+    type: "battle",
+    rarity: "SR",
+    hp: 3,
+    atk: 2,
+    move: 1,
+    effect_text: "隣接する味方ユニットは、敵アイテムから受けるダメージを1減らし、行動不能にならない。",
+    effect_type: "aura_item_damage_minus_1_and_no_stun",
+    image_file: "RV-063.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-064",
+    card_name: "蒼淵の海剣",
+    type: "battle",
+    rarity: "SR",
+    hp: 4,
+    atk: 2,
+    move: 1,
+    effect_text: "このユニットは敵の環境カードの効果を受けない。さらに、中央9マスにいる間、受けるダメージ-1。",
+    effect_type: "ignore_enemy_field_effects_and_center_guard_1",
+    image_file: "RV-064.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-065",
+    card_name: "降神の祭壇",
+    type: "field",
+    rarity: "SR",
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: "自分のラウンド開始時、中央9マスにいる味方1体を選ぶ。そのユニットのHPを1回復し、受けている「攻撃不能」「行動不能」「移動力-1」をすべて解除する。",
+    effect_type: "field_start_round_heal_1_and_cleanse_center_ally",
+    image_file: "RV-065.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-066",
+    card_name: "海底継承殿",
+    type: "field",
+    rarity: "SR",
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: "中央9マスにいる自分のユニットは、敵アイテムの効果で破壊されない。",
+    effect_type: "field_center_allies_cannot_be_destroyed_by_enemy_items",
+    image_file: "RV-066.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-067",
+    card_name: "焔継の王剣",
+    type: "battle",
+    rarity: "SSR",
+    hp: 4,
+    atk: 3,
+    move: 1,
+    effect_text: "中央9マスの敵を攻撃するとき、その敵が受けているダメージ軽減を無視する。さらに、その敵が環境カードによる攻撃力上昇またはダメージ軽減を受けているなら、攻撃力+1。",
+    effect_type: "ignore_reduction_vs_center_enemy_and_atk_plus_1_if_field_buffed",
+    image_file: "RV-067.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-068",
+    card_name: "竜骸の覇斧",
+    type: "battle",
+    rarity: "SSR",
+    hp: 5,
+    atk: 3,
+    move: 1,
+    effect_text: "このユニットは試合中1回だけ、敵のアイテムまたは環境カードの効果による「破壊」「行動不能」「攻撃不能」を無効にする。さらに、このユニットが中央9マスにいる間、隣接する味方ユニットは敵アイテムの効果で破壊されない。",
+    effect_type: "negate_destroy_stun_disable_once_from_enemy_item_or_field_and_center_aura_adjacent_allies_no_item_destroy",
+    image_file: "RV-068.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-069",
+    card_name: "蒼炎のレイン",
+    type: "battle",
+    rarity: "SSR",
+    hp: 5,
+    atk: 3,
+    move: 2,
+    effect_text: "このユニットは敵の環境カードの効果を受けない。さらに、このユニットが中央9マスにいる間、中央9マスの敵ユニットは環境カードによる攻撃力上昇・ダメージ軽減・HP回復を受けない。さらに、中央9マスの敵を攻撃するとき、その攻撃はダメージ軽減を無視する。",
+    effect_type: "ignore_enemy_field_effects_self_and_center_aura_negate_enemy_field_buffs_heal_and_ignore_reduction_vs_center",
+    image_file: "RV-069.png",
+    unlock_only: true,
+  },
+  {
+    card_id: "RV-070",
+    card_name: "冥鎖の双刃",
+    type: "battle",
+    rarity: "SSR",
+    hp: 4,
+    atk: 3,
+    move: 2,
+    effect_text: "このユニットからダメージを受けた敵は、次の相手ラウンド終了時までHPを回復できない。その状態の敵が倒された場合、復活できない。さらに、HPが満タンの敵、またはこのラウンドにHPを回復した敵を攻撃すると攻撃力+1。",
+    effect_type: "on_damage_apply_no_heal_until_next_opponent_round_and_no_revive_if_destroyed_plus_atk_1_vs_full_or_healed_enemy",
+    image_file: "RV-070.png",
+    unlock_only: true,
+  },
 ];
 
 const UNLOCK_CODE_DEFS = [
@@ -154,6 +414,26 @@ const UNLOCK_CODE_DEFS = [
   { code: 'BLOOD-MOON-008', normalizedCode: 'BLOODMOON008', label: '血月', cardIds: ['SP-008'] },
   { code: 'THRONE-009', normalizedCode: 'THRONE009', label: '王の玉座', cardIds: ['SP-009'] },
   { code: 'TRUE-VEIN-010', normalizedCode: 'TRUEVEIN010', label: '真祖血姫 ヴェイン', cardIds: ['SP-010'] },
+  { code: "SHINSOU-051", normalizedCode: "SHINSOU051", label: "幽灯の仮面", cardIds: ["RV-051"] },
+  { code: "SHINSOU-052", normalizedCode: "SHINSOU052", label: "灰冠の籠手", cardIds: ["RV-052"] },
+  { code: "SHINSOU-053", normalizedCode: "SHINSOU053", label: "宵喰の呪鎖", cardIds: ["RV-053"] },
+  { code: "SHINSOU-054", normalizedCode: "SHINSOU054", label: "竜骨の戦冠", cardIds: ["RV-054"] },
+  { code: "SHINSOU-055", normalizedCode: "SHINSOU055", label: "神授の杯冠", cardIds: ["RV-055"] },
+  { code: "SHINSOU-056", normalizedCode: "SHINSOU056", label: "朱蓮の鳳刀", cardIds: ["RV-056"] },
+  { code: "SHINSOU-057", normalizedCode: "SHINSOU057", label: "天輝の細剣", cardIds: ["RV-057"] },
+  { code: "SHINSOU-058", normalizedCode: "SHINSOU058", label: "白鱗の皇薙", cardIds: ["RV-058"] },
+  { code: "SHINSOU-059", normalizedCode: "SHINSOU059", label: "蝕月の断鎌", cardIds: ["RV-059"] },
+  { code: "SHINSOU-060", normalizedCode: "SHINSOU060", label: "炎極の宝珠", cardIds: ["RV-060"] },
+  { code: "SHINSOU-061", normalizedCode: "SHINSOU061", label: "逆鱗の印璽", cardIds: ["RV-061"] },
+  { code: "SHINSOU-062", normalizedCode: "SHINSOU062", label: "深澪の蒼核", cardIds: ["RV-062"] },
+  { code: "SHINSOU-063", normalizedCode: "SHINSOU063", label: "星祈の聖槍", cardIds: ["RV-063"] },
+  { code: "SHINSOU-064", normalizedCode: "SHINSOU064", label: "蒼淵の海剣", cardIds: ["RV-064"] },
+  { code: "SHINSOU-065", normalizedCode: "SHINSOU065", label: "降神の祭壇", cardIds: ["RV-065"] },
+  { code: "SHINSOU-066", normalizedCode: "SHINSOU066", label: "海底継承殿", cardIds: ["RV-066"] },
+  { code: "SHINSOU-067", normalizedCode: "SHINSOU067", label: "焔継の王剣", cardIds: ["RV-067"] },
+  { code: "SHINSOU-068", normalizedCode: "SHINSOU068", label: "竜骸の覇斧", cardIds: ["RV-068"] },
+  { code: "SHINSOU-069", normalizedCode: "SHINSOU069", label: "蒼炎のレイン", cardIds: ["RV-069"] },
+  { code: "SHINSOU-070", normalizedCode: "SHINSOU070", label: "冥鎖の双刃", cardIds: ["RV-070"] },
 ];
 
 const UNLOCK_CODE_MAP = new Map(UNLOCK_CODE_DEFS.map((entry) => [entry.normalizedCode, entry]));
@@ -173,10 +453,10 @@ const MIME_TYPES = {
 };
 
 const rooms = new Map();
-const SPECIAL_CARD_IDS = new Set(SPECIAL_CARDS.map((card) => card.card_id));
-const baseCards = loadCards().filter((card) => !SPECIAL_CARD_IDS.has(String(card?.card_id || '')));
+const baseCards = loadCards();
 const cards = [...baseCards, ...SPECIAL_CARDS];
 const cardMap = new Map(cards.map((card) => [card.card_id, card]));
+const SPECIAL_CARD_IDS = new Set(SPECIAL_CARDS.map((card) => card.card_id));
 const BASE_CARD_IDS = new Set(baseCards.map((card) => card.card_id));
 const validCardIds = new Set(cards.map((card) => card.card_id));
 const SETUP_SEQUENCE = [
@@ -294,7 +574,7 @@ function sanitizeUnlockTokens(tokens) {
     if (!value || seen.has(value)) continue;
     seen.add(value);
     deduped.push(value);
-    if (deduped.length >= 24) break;
+    if (deduped.length >= 64) break;
   }
   return deduped;
 }
@@ -311,14 +591,10 @@ function collectUnlockedCardIds(saveKey, unlockTokens) {
 
 function buildCatalogForSaveKey(saveKey, unlockTokens) {
   const unlockedCardIds = collectUnlockedCardIds(saveKey, unlockTokens);
-  const visibleCards = [];
-  const seen = new Set();
-  [...baseCards, ...SPECIAL_CARDS.filter((card) => unlockedCardIds.has(card.card_id))].forEach((card) => {
-    const cardId = String(card?.card_id || '');
-    if (!cardId || seen.has(cardId)) return;
-    seen.add(cardId);
-    visibleCards.push(card);
-  });
+  const visibleCards = [
+    ...baseCards,
+    ...SPECIAL_CARDS.filter((card) => unlockedCardIds.has(card.card_id)),
+  ];
   return {
     cards: visibleCards,
     unlockedCardIds: [...unlockedCardIds],
@@ -835,14 +1111,10 @@ function getAttackTargets(game, unitId) {
       [[row, col - 1], [row, col - 2]],
       [[row, col + 1], [row, col + 2]],
     ].forEach((line) => {
-      line.forEach(([r, c], stepIndex) => {
+      line.forEach(([r, c]) => {
         if (r < 0 || r > 4 || c < 0 || c > 4) return;
         const idx = coordToIndex(r, c);
-        const targetUnit = game.board[idx];
-        if (!targetUnit || targetUnit.owner === game.currentPlayer) return;
-        const distance = stepIndex + 1;
-        if (distance >= 2 && playerHasFieldEffect(game, targetUnit.owner, 'field_range_limit_adjacent_only')) return;
-        targetSet.add(idx);
+        if (game.board[idx] && game.board[idx].owner !== game.currentPlayer) targetSet.add(idx);
       });
     });
   }
@@ -851,11 +1123,7 @@ function getAttackTargets(game, unitId) {
     for (let targetCol = 0; targetCol < 5; targetCol += 1) {
       if (targetCol === col) continue;
       const idx = coordToIndex(row, targetCol);
-      const targetUnit = game.board[idx];
-      if (!targetUnit || targetUnit.owner === game.currentPlayer) continue;
-      const distance = Math.abs(targetCol - col);
-      if (distance >= 2 && playerHasFieldEffect(game, targetUnit.owner, 'field_range_limit_adjacent_only')) continue;
-      targetSet.add(idx);
+      if (game.board[idx] && game.board[idx].owner !== game.currentPlayer) targetSet.add(idx);
     }
   }
 
@@ -1674,7 +1942,7 @@ function handleRoomActionRequest(data, ws) {
     return;
   }
 
-  if (!['rematch', 'reset', 'surrender'].includes(action)) {
+  if (!['rematch', 'reset'].includes(action)) {
     send(ws, { type: 'error', message: '未対応のルーム操作です。' });
     return;
   }
@@ -1692,18 +1960,6 @@ function handleRoomActionRequest(data, ws) {
   }
   if (action === 'reset' && !room.game) {
     send(ws, { type: 'error', message: 'リセットできる試合がありません。' });
-    return;
-  }
-  if (action === 'surrender') {
-    if (!room.game || room.game.phase === 'finished' || room.roomState !== 'playing') {
-      send(ws, { type: 'error', message: '降参は対戦中だけ実行できます。' });
-      return;
-    }
-    clearRoomControlRequests(room);
-    const loserLabel = meta.role === 'p1' ? 'プレイヤー1' : 'プレイヤー2';
-    const winnerLabel = meta.role === 'p1' ? 'プレイヤー2' : 'プレイヤー1';
-    const finishMessage = `${loserLabel}が降参しました。${winnerLabel}の勝利です。`;
-    finalizeRoomGameIfNeeded(room, finishMessage);
     return;
   }
 
