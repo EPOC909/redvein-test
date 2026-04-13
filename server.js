@@ -881,6 +881,9 @@ function createUnitState(cardId, owner, forcedInstanceId = '') {
     healedInRound: 0,
     untargetableByEnemyItemsUntilTurnStartOf: '',
     negateBuffsAndHealUntilTurnStartOf: '',
+    noHealNoReviveUntilTurnStartOf: '',
+    centerSilenceDisableAttackUntilTurnStartOf: '',
+    nextAttackAppliesNoHealNoRevive: false,
   };
 }
 
@@ -964,6 +967,11 @@ function coordToIndex(row, col) {
   return row * 5 + col;
 }
 
+function isPointZoneIndex(index) {
+  const { row, col } = indexToCoord(index);
+  return row >= 1 && row <= 3 && col >= 1 && col <= 3;
+}
+
 function getOrthogonalNeighbors(index) {
   const { row, col } = indexToCoord(index);
   const cells = [];
@@ -996,11 +1004,30 @@ function getCardMeta(cardId) {
   return cardMap.get(cardId) || null;
 }
 
-function unitHasEffectType(unit, effectType) {
+function findUnitIndexById(game, unitId) {
+  return game.board.findIndex((unit) => unit && unit.instanceId === unitId);
+}
+
+function getBoardIndexForUnit(game, unit) {
+  if (!unit?.instanceId) return -1;
+  return findUnitIndexById(game, unit.instanceId);
+}
+
+function isUnitCenterSilenced(game, unit, boardIndex = null) {
+  if (!unit?.centerSilenceDisableAttackUntilTurnStartOf) return false;
+  const resolvedIndex = boardIndex == null ? getBoardIndexForUnit(game, unit) : boardIndex;
+  return resolvedIndex >= 0 && isPointZoneIndex(resolvedIndex);
+}
+
+function unitHasEffectType(unit, effectType, game = null, boardIndex = null) {
+  if (!unit) return false;
+  if (game && isUnitCenterSilenced(game, unit, boardIndex)) return false;
   return getCardMeta(unit?.cardId)?.effect_type === effectType;
 }
 
-function unitIgnoresEnemyFieldEffects(unit) {
+function unitIgnoresEnemyFieldEffects(unit, game = null, boardIndex = null) {
+  if (!unit) return false;
+  if (game && isUnitCenterSilenced(game, unit, boardIndex)) return false;
   const effectType = getCardMeta(unit?.cardId)?.effect_type || '';
   return effectType === 'ignore_enemy_field_effects_and_center_guard_1'
     || effectType.startsWith('ignore_enemy_field_effects_self');
@@ -1031,7 +1058,7 @@ function hasAdjacentUnitOwnedBy(game, targetIndex, ownerKey) {
 function getAdjacentEnemySentryReduction(game, boardIndex, ownerKey) {
   return getOrthogonalNeighbors(boardIndex).reduce((count, idx) => {
     const unit = game.board[idx];
-    return count + (unit && unit.owner !== ownerKey && unitHasEffectType(unit, 'aura_enemy_move_minus_1') ? 1 : 0);
+    return count + (unit && unit.owner !== ownerKey && unitHasEffectType(unit, 'aura_enemy_move_minus_1', game, idx) ? 1 : 0);
   }, 0);
 }
 
@@ -1058,10 +1085,6 @@ function getEffectiveMove(game, unit, boardIndex) {
 
 function getAttackLimitForUnit(unit) {
   return unitHasEffectType(unit, 'double_attack') ? 2 : 1;
-}
-
-function findUnitIndexById(game, unitId) {
-  return game.board.findIndex((unit) => unit && unit.instanceId === unitId);
 }
 
 function currentPlayerCannotAttackAfterMove(game, unit = null) {
@@ -1123,7 +1146,7 @@ function getAttackTargets(game, unitId) {
   const startIndex = findUnitIndexById(game, unitId);
   if (startIndex < 0) return [];
   const unit = game.board[startIndex];
-  if (!unit || unit.owner !== game.currentPlayer || unit.actionLocked || unit.attackLocked) return [];
+  if (!unit || unit.owner !== game.currentPlayer || unit.actionLocked || unit.attackLocked || isUnitCenterSilenced(game, unit, startIndex)) return [];
   if (currentPlayerCannotAttackAfterMove(game, unit)) return [];
 
   const attackUnitId = game.turnState.attackUnitId || null;
@@ -1139,7 +1162,7 @@ function getAttackTargets(game, unitId) {
       .filter((idx) => game.board[idx] && game.board[idx].owner !== game.currentPlayer)
   );
 
-  if (unitHasEffectType(unit, 'range_2') || unitHasEffectType(unit, 'pierce_line_2')) {
+  if (unitHasEffectType(unit, 'range_2', game, startIndex) || unitHasEffectType(unit, 'pierce_line_2', game, startIndex)) {
     [
       [[row - 1, col], [row - 2, col]],
       [[row + 1, col], [row + 2, col]],
@@ -1154,7 +1177,7 @@ function getAttackTargets(game, unitId) {
     });
   }
 
-  if (unitHasEffectType(unit, 'row_range_attack')) {
+  if (unitHasEffectType(unit, 'row_range_attack', game, startIndex)) {
     for (let targetCol = 0; targetCol < 5; targetCol += 1) {
       if (targetCol === col) continue;
       const idx = coordToIndex(row, targetCol);
@@ -1163,7 +1186,7 @@ function getAttackTargets(game, unitId) {
   }
 
   const enemyFogActive = playerHasFieldEffect(game, game.currentPlayer === 'player1' ? 'player2' : 'player1', 'field_range_limit_adjacent_only')
-    && !unitIgnoresEnemyFieldEffects(unit);
+    && !unitIgnoresEnemyFieldEffects(unit, game, startIndex);
   if (!enemyFogActive) return [...targetSet];
   const adjacent = new Set(getOrthogonalNeighbors(startIndex));
   return [...targetSet].filter((idx) => adjacent.has(idx));
@@ -1188,6 +1211,7 @@ function clearTempEffectsForPlayer(game, playerKey) {
     if (!unit || unit.owner !== playerKey) return;
     unit.tempAtkBuff = 0;
     unit.tempMoveBuff = 0;
+    unit.nextAttackAppliesNoHealNoRevive = false;
   });
 }
 
@@ -1204,12 +1228,18 @@ function clearExpiredStartOfTurnEffects(game, playerKey) {
     if (unit.negateBuffsAndHealUntilTurnStartOf === playerKey) {
       unit.negateBuffsAndHealUntilTurnStartOf = '';
     }
+    if (unit.noHealNoReviveUntilTurnStartOf === playerKey) {
+      unit.noHealNoReviveUntilTurnStartOf = '';
+    }
+    if (unit.centerSilenceDisableAttackUntilTurnStartOf === playerKey) {
+      unit.centerSilenceDisableAttackUntilTurnStartOf = '';
+    }
   });
 }
 
 function healUnitForServer(unit, amount, round) {
   if (!unit || amount <= 0) return { healed: 0, blocked: false };
-  if (unit.negateBuffsAndHealUntilTurnStartOf) return { healed: 0, blocked: true };
+  if (unit.negateBuffsAndHealUntilTurnStartOf || unit.noHealNoReviveUntilTurnStartOf) return { healed: 0, blocked: true };
   const before = Number(unit.currentHp || 0);
   unit.currentHp = Math.min(Number(unit.maxHp || 0), before + Number(amount || 0));
   const healed = Math.max(0, unit.currentHp - before);
@@ -1263,6 +1293,7 @@ function getRequiredItemTargetType(card) {
     case 'move_twice_single':
     case 'royal_command_single':
     case 'untargetable_by_enemy_items_turn_1':
+    case 'mark_attack_target_no_heal_no_revive_until_next_opponent_round':
       return 'ally';
     case 'damage_single_1':
     case 'damage_single_2':
@@ -1271,6 +1302,7 @@ function getRequiredItemTargetType(card) {
     case 'disable_attack_next_round':
     case 'stun_single_1_turn':
     case 'negate_buffs_and_heal_until_next_opponent_round':
+    case 'silence_and_disable_attack_while_in_center_until_next_opponent_round':
       return 'enemy';
     case 'damage_aoe_target_radius_1':
       return 'occupied';
@@ -1283,6 +1315,25 @@ function isOffensiveItem(card) {
   return ['damage_single_1', 'damage_single_2', 'damage_aoe_target_radius_1', 'disable_attack_next_round', 'stun_single_1_turn', 'destroy_single', 'destroy_single_no_revive'].includes(card?.effect_type);
 }
 
+function hasAdjacentCenterAuraItemUntargetable(game, unit, boardIndex = null) {
+  if (!unit || boardIndex == null) return false;
+  return getOrthogonalNeighbors(boardIndex).some((idx) => {
+    const ally = game.board[idx];
+    return ally
+      && ally.owner === unit.owner
+      && ally.instanceId !== unit.instanceId
+      && isPointZoneIndex(idx)
+      && unitHasEffectType(ally, 'center_aura_adjacent_allies_untargetable_by_enemy_items', game, idx);
+  });
+}
+
+function isUnitUntargetableByEnemyItems(game, unit, boardIndex = null) {
+  if (!unit) return false;
+  if (unit.untargetableByEnemyItemsUntilTurnStartOf) return true;
+  const resolvedIndex = boardIndex == null ? getBoardIndexForUnit(game, unit) : boardIndex;
+  return resolvedIndex >= 0 && hasAdjacentCenterAuraItemUntargetable(game, unit, resolvedIndex);
+}
+
 function validateItemTarget(game, playerKey, card, targetIndex) {
   const required = getRequiredItemTargetType(card);
   if (required === 'none') return targetIndex == null;
@@ -1293,7 +1344,7 @@ function validateItemTarget(game, playerKey, card, targetIndex) {
   if (isOffensiveItem(card) && playerHasFieldEffect(game, targetUnit.owner, 'field_range_limit_adjacent_only') && !hasAdjacentUnitOwnedBy(game, targetIndex, playerKey)) {
     return false;
   }
-  if ((required === 'enemy' || required === 'occupied') && targetUnit.owner !== playerKey && targetUnit.untargetableByEnemyItemsUntilTurnStartOf && isOffensiveItem(card)) {
+  if ((required === 'enemy' || required === 'occupied') && targetUnit.owner !== playerKey && isUnitUntargetableByEnemyItems(game, targetUnit, targetIndex) && isOffensiveItem(card)) {
     return false;
   }
 
@@ -1368,6 +1419,16 @@ function applyServerSideItemEffects(game, playerKey, cardId, targetIndex) {
       targetUnit.untargetableByEnemyItemsUntilTurnStartOf = playerKey;
       break;
     }
+    case 'mark_attack_target_no_heal_no_revive_until_next_opponent_round': {
+      if (!targetUnit || targetUnit.owner !== playerKey) return;
+      targetUnit.nextAttackAppliesNoHealNoRevive = true;
+      break;
+    }
+    case 'silence_and_disable_attack_while_in_center_until_next_opponent_round': {
+      if (!targetUnit || targetUnit.owner === playerKey) return;
+      targetUnit.centerSilenceDisableAttackUntilTurnStartOf = playerKey;
+      break;
+    }
     case 'negate_buffs_and_heal_until_next_opponent_round': {
       if (!targetUnit || targetUnit.owner === playerKey) return;
       targetUnit.negateBuffsAndHealUntilTurnStartOf = playerKey;
@@ -1410,6 +1471,9 @@ function sanitizeBoardSnapshot(board) {
       healedInRound: Math.max(0, Number(cell.healedInRound || 0)),
       untargetableByEnemyItemsUntilTurnStartOf: cell.untargetableByEnemyItemsUntilTurnStartOf ? String(cell.untargetableByEnemyItemsUntilTurnStartOf) : '',
       negateBuffsAndHealUntilTurnStartOf: cell.negateBuffsAndHealUntilTurnStartOf ? String(cell.negateBuffsAndHealUntilTurnStartOf) : '',
+      noHealNoReviveUntilTurnStartOf: cell.noHealNoReviveUntilTurnStartOf ? String(cell.noHealNoReviveUntilTurnStartOf) : '',
+      centerSilenceDisableAttackUntilTurnStartOf: cell.centerSilenceDisableAttackUntilTurnStartOf ? String(cell.centerSilenceDisableAttackUntilTurnStartOf) : '',
+      nextAttackAppliesNoHealNoRevive: !!cell.nextAttackAppliesNoHealNoRevive,
     };
   });
 }
@@ -1976,6 +2040,7 @@ function handleEndTurn(data, ws) {
   }
   const previousPlayer = game.currentPlayer;
   const nextPlayer = previousPlayer === 'player1' ? 'player2' : 'player1';
+  clearTempEffectsForPlayer(game, previousPlayer);
   let nextRound = Number(game.round || 1);
   if (previousPlayer === 'player2') nextRound += 1;
   game.round = nextRound;
