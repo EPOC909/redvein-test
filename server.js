@@ -1262,6 +1262,73 @@ function healUnitForServer(unit, amount, round) {
   return { healed, blocked: false };
 }
 
+function getCleansableStatusKindsForServer(unit) {
+  if (!unit) return [];
+  const kinds = [];
+  if (unit.actionLocked || Number(unit.skipActionTurns || 0) > 0) kinds.push('action');
+  if (unit.attackLocked || Number(unit.skipAttackTurns || 0) > 0) kinds.push('attack');
+  if (Number(unit.tempMoveBuff || 0) < 0) kinds.push('move');
+  return kinds;
+}
+
+function clearCleansableStatusForServer(unit, kind) {
+  if (!unit || !kind) return false;
+  if (kind === 'action') {
+    const had = !!unit.actionLocked || Number(unit.skipActionTurns || 0) > 0;
+    unit.actionLocked = false;
+    unit.skipActionTurns = 0;
+    return had;
+  }
+  if (kind === 'attack') {
+    const had = !!unit.attackLocked || Number(unit.skipAttackTurns || 0) > 0;
+    unit.attackLocked = false;
+    unit.skipAttackTurns = 0;
+    return had;
+  }
+  if (kind === 'move') {
+    const had = Number(unit.tempMoveBuff || 0) < 0;
+    if (had) unit.tempMoveBuff = 0;
+    return had;
+  }
+  return false;
+}
+
+function clearOneCleansableStatusForServer(unit) {
+  for (const kind of ['action', 'attack', 'move']) {
+    if (clearCleansableStatusForServer(unit, kind)) return kind;
+  }
+  return '';
+}
+
+function clearAllCleansableStatusesForServer(unit) {
+  const cleared = [];
+  ['action', 'attack', 'move'].forEach((kind) => {
+    if (clearCleansableStatusForServer(unit, kind)) cleared.push(kind);
+  });
+  return cleared;
+}
+
+function chooseFieldStartCenterAllyForServer(game, playerKey) {
+  let best = null;
+  for (let index = 0; index < game.board.length; index += 1) {
+    const unit = game.board[index];
+    if (!unit || unit.owner !== playerKey || !isPointZoneIndex(index)) continue;
+    const cleanseCount = getCleansableStatusKindsForServer(unit).length;
+    const missingHp = Math.max(0, Number(unit.maxHp || 0) - Number(unit.currentHp || 0));
+    const score = cleanseCount * 100 + missingHp * 10 + (24 - index);
+    if (!best || score > best.score) best = { index, unit, score };
+  }
+  return best;
+}
+
+function applyFieldStartOfTurnEffectsForServer(game, playerKey) {
+  if (!playerHasFieldEffect(game, playerKey, 'field_start_round_heal_1_and_cleanse_center_ally')) return;
+  const target = chooseFieldStartCenterAllyForServer(game, playerKey);
+  if (!target?.unit) return;
+  healUnitForServer(target.unit, 1, game.round);
+  clearAllCleansableStatusesForServer(target.unit);
+}
+
 function refreshTurnStatusForPlayer(game, playerKey) {
   game.board.forEach((unit) => {
     if (!unit) return;
@@ -1295,6 +1362,7 @@ function beginTurn(game, playerKey) {
   clearExpiredStartOfTurnEffects(game, playerKey);
   game.turnState = createTurnState();
   clearTempEffectsForPlayer(game, playerKey);
+  applyFieldStartOfTurnEffectsForServer(game, playerKey);
   refreshTurnStatusForPlayer(game, playerKey);
 }
 
@@ -1310,6 +1378,7 @@ function getRequiredItemTargetType(card) {
     case 'untargetable_by_enemy_items_turn_1':
     case 'mark_attack_target_no_heal_no_revive_until_next_opponent_round':
     case 'negate_next_destroy_or_stun_or_disable_attack_once':
+    case 'heal_2_and_cleanse_one_status':
       return 'ally';
     case 'damage_single_1':
     case 'damage_single_2':
@@ -1402,6 +1471,12 @@ function applyServerSideItemEffects(game, playerKey, cardId, targetIndex) {
       if (!targetUnit.negateBuffsAndHealUntilTurnStartOf) {
         targetUnit.tempAtkBuff = Number(targetUnit.tempAtkBuff || 0) + 1;
       }
+      break;
+    }
+    case 'heal_2_and_cleanse_one_status': {
+      if (!targetUnit || targetUnit.owner !== playerKey) return;
+      healUnitForServer(targetUnit, 2, game.round);
+      clearOneCleansableStatusForServer(targetUnit);
       break;
     }
     case 'royal_command_single': {
