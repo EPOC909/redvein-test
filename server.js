@@ -883,6 +883,9 @@ function createUnitState(cardId, owner, forcedInstanceId = '') {
     negateBuffsAndHealUntilTurnStartOf: '',
     noHealNoReviveUntilTurnStartOf: '',
     centerSilenceDisableAttackUntilTurnStartOf: '',
+    fullSilenceUntilTurnStartOf: '',
+    negateNextDestroyStunDisableAttackUntilTurnStartOf: '',
+    itemFieldNegateControlUsed: false,
     nextAttackAppliesNoHealNoRevive: false,
   };
 }
@@ -1019,15 +1022,21 @@ function isUnitCenterSilenced(game, unit, boardIndex = null) {
   return resolvedIndex >= 0 && isPointZoneIndex(resolvedIndex);
 }
 
+function isUnitFullySilenced(unit) {
+  return !!(unit && unit.fullSilenceUntilTurnStartOf);
+}
+
 function unitHasEffectType(unit, effectType, game = null, boardIndex = null) {
   if (!unit) return false;
   if (game && isUnitCenterSilenced(game, unit, boardIndex)) return false;
+  if (isUnitFullySilenced(unit)) return false;
   return getCardMeta(unit?.cardId)?.effect_type === effectType;
 }
 
 function unitIgnoresEnemyFieldEffects(unit, game = null, boardIndex = null) {
   if (!unit) return false;
   if (game && isUnitCenterSilenced(game, unit, boardIndex)) return false;
+  if (isUnitFullySilenced(unit)) return false;
   const effectType = getCardMeta(unit?.cardId)?.effect_type || '';
   return effectType === 'ignore_enemy_field_effects_and_center_guard_1'
     || effectType.startsWith('ignore_enemy_field_effects_self');
@@ -1234,12 +1243,18 @@ function clearExpiredStartOfTurnEffects(game, playerKey) {
     if (unit.centerSilenceDisableAttackUntilTurnStartOf === playerKey) {
       unit.centerSilenceDisableAttackUntilTurnStartOf = '';
     }
+    if (unit.fullSilenceUntilTurnStartOf === playerKey) {
+      unit.fullSilenceUntilTurnStartOf = '';
+    }
+    if (unit.negateNextDestroyStunDisableAttackUntilTurnStartOf === playerKey) {
+      unit.negateNextDestroyStunDisableAttackUntilTurnStartOf = '';
+    }
   });
 }
 
 function healUnitForServer(unit, amount, round) {
   if (!unit || amount <= 0) return { healed: 0, blocked: false };
-  if (unit.negateBuffsAndHealUntilTurnStartOf || unit.noHealNoReviveUntilTurnStartOf) return { healed: 0, blocked: true };
+  if (unit.negateBuffsAndHealUntilTurnStartOf || unit.noHealNoReviveUntilTurnStartOf || unit.fullSilenceUntilTurnStartOf) return { healed: 0, blocked: true };
   const before = Number(unit.currentHp || 0);
   unit.currentHp = Math.min(Number(unit.maxHp || 0), before + Number(amount || 0));
   const healed = Math.max(0, unit.currentHp - before);
@@ -1294,6 +1309,7 @@ function getRequiredItemTargetType(card) {
     case 'royal_command_single':
     case 'untargetable_by_enemy_items_turn_1':
     case 'mark_attack_target_no_heal_no_revive_until_next_opponent_round':
+    case 'negate_next_destroy_or_stun_or_disable_attack_once':
       return 'ally';
     case 'damage_single_1':
     case 'damage_single_2':
@@ -1303,6 +1319,7 @@ function getRequiredItemTargetType(card) {
     case 'stun_single_1_turn':
     case 'negate_buffs_and_heal_until_next_opponent_round':
     case 'silence_and_disable_attack_while_in_center_until_next_opponent_round':
+    case 'center_silence_and_negate_buffs_heal_until_next_opponent_round':
       return 'enemy';
     case 'damage_aoe_target_radius_1':
       return 'occupied';
@@ -1348,6 +1365,7 @@ function validateItemTarget(game, playerKey, card, targetIndex) {
     return false;
   }
 
+  if (card?.effect_type === 'center_silence_and_negate_buffs_heal_until_next_opponent_round' && !isPointZoneIndex(targetIndex)) return false;
   if (required === 'occupied') return true;
   if (required === 'ally') return targetUnit.owner === playerKey;
   if (required === 'enemy') return targetUnit.owner !== playerKey;
@@ -1419,6 +1437,11 @@ function applyServerSideItemEffects(game, playerKey, cardId, targetIndex) {
       targetUnit.untargetableByEnemyItemsUntilTurnStartOf = playerKey;
       break;
     }
+    case 'negate_next_destroy_or_stun_or_disable_attack_once': {
+      if (!targetUnit || targetUnit.owner !== playerKey) return;
+      targetUnit.negateNextDestroyStunDisableAttackUntilTurnStartOf = playerKey;
+      break;
+    }
     case 'mark_attack_target_no_heal_no_revive_until_next_opponent_round': {
       if (!targetUnit || targetUnit.owner !== playerKey) return;
       targetUnit.nextAttackAppliesNoHealNoRevive = true;
@@ -1427,6 +1450,12 @@ function applyServerSideItemEffects(game, playerKey, cardId, targetIndex) {
     case 'silence_and_disable_attack_while_in_center_until_next_opponent_round': {
       if (!targetUnit || targetUnit.owner === playerKey) return;
       targetUnit.centerSilenceDisableAttackUntilTurnStartOf = playerKey;
+      break;
+    }
+    case 'center_silence_and_negate_buffs_heal_until_next_opponent_round': {
+      if (!targetUnit || targetUnit.owner === playerKey) return;
+      targetUnit.negateBuffsAndHealUntilTurnStartOf = playerKey;
+      targetUnit.fullSilenceUntilTurnStartOf = playerKey;
       break;
     }
     case 'negate_buffs_and_heal_until_next_opponent_round': {
@@ -1473,6 +1502,9 @@ function sanitizeBoardSnapshot(board) {
       negateBuffsAndHealUntilTurnStartOf: cell.negateBuffsAndHealUntilTurnStartOf ? String(cell.negateBuffsAndHealUntilTurnStartOf) : '',
       noHealNoReviveUntilTurnStartOf: cell.noHealNoReviveUntilTurnStartOf ? String(cell.noHealNoReviveUntilTurnStartOf) : '',
       centerSilenceDisableAttackUntilTurnStartOf: cell.centerSilenceDisableAttackUntilTurnStartOf ? String(cell.centerSilenceDisableAttackUntilTurnStartOf) : '',
+      fullSilenceUntilTurnStartOf: cell.fullSilenceUntilTurnStartOf ? String(cell.fullSilenceUntilTurnStartOf) : '',
+      negateNextDestroyStunDisableAttackUntilTurnStartOf: cell.negateNextDestroyStunDisableAttackUntilTurnStartOf ? String(cell.negateNextDestroyStunDisableAttackUntilTurnStartOf) : '',
+      itemFieldNegateControlUsed: !!cell.itemFieldNegateControlUsed,
       nextAttackAppliesNoHealNoRevive: !!cell.nextAttackAppliesNoHealNoRevive,
     };
   });
