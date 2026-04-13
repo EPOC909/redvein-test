@@ -4538,7 +4538,7 @@ function getUnitDamageReductionParts(unit, boardIndex = null, options = {}) {
   if (boardIndex != null && isPointZone(boardIndex) && unitHasEffectType(unit, 'ignore_enemy_field_effects_and_center_guard_1')) {
     parts.push({ label: '蒼淵の海剣', value: 1 });
   }
-  if (boardIndex != null && isPointZone(boardIndex)) {
+  if (boardIndex != null && isPointZone(boardIndex) && !isEnemyCenterFieldBuffHealNegated(unit, boardIndex)) {
     const fieldCard = getPlayerFieldCard(unit.owner);
     if (fieldCard?.effect_type === 'field_center_ally_guard_1_atk_plus_1') {
       parts.push({ label: '王の玉座', value: 1 });
@@ -5603,6 +5603,14 @@ function hasAdjacentHolyLanceAura(unit, boardIndex = null) {
   });
 }
 
+function isEnemyCenterFieldBuffHealNegated(unit, boardIndex = null) {
+  if (!unit || boardIndex == null || !isPointZone(boardIndex)) return false;
+  return matchState.board.some((otherUnit, idx) => {
+    if (!otherUnit || otherUnit.owner === unit.owner || !isPointZone(idx)) return false;
+    return unitHasEffectType(otherUnit, 'ignore_enemy_field_effects_self_and_center_aura_negate_enemy_field_buffs_heal_and_ignore_reduction_vs_center', idx);
+  });
+}
+
 function isUnitUntargetableByEnemyItems(unit, boardIndex = null) {
   if (!unit) return false;
   if (unit.untargetableByEnemyItemsUntilTurnStartOf) return true;
@@ -5682,7 +5690,8 @@ function markUnitHealedThisRound(unit) {
 
 function healUnitForEffect(unit, amount) {
   if (!unit || amount <= 0) return { healed: 0, blocked: false };
-  if (isUnitBuffsAndHealNegated(unit) || unitHasNoHealNoRevive(unit)) return { healed: 0, blocked: true };
+  const boardIndex = getBoardIndexForUnit(unit);
+  if (isUnitBuffsAndHealNegated(unit) || unitHasNoHealNoRevive(unit) || isEnemyCenterFieldBuffHealNegated(unit, boardIndex)) return { healed: 0, blocked: true };
   const before = Number(unit.currentHp || 0);
   unit.currentHp = Math.min(Number(unit.maxHp || 0), before + Number(amount || 0));
   const healed = Math.max(0, unit.currentHp - before);
@@ -5753,6 +5762,20 @@ function chooseFieldStartCenterAlly(playerKey) {
     const score = cleanseCount * 100 + missingHp * 10 + (24 - index);
     if (!best || score > best.score) best = { index, unit, score };
   }
+  return best;
+}
+
+function chooseAdjacentAllyForSwapCleanse(unitIndex, ownerKey, excludeUnitId = '') {
+  let best = null;
+  getOrthogonalNeighbors(unitIndex).forEach((idx) => {
+    const ally = matchState.board[idx];
+    if (!ally || ally.owner !== ownerKey || ally.instanceId === excludeUnitId) return;
+    const statusKinds = getCleansableStatusKinds(ally);
+    if (!statusKinds.length) return;
+    const priority = statusKinds.includes('action') ? 3 : statusKinds.includes('attack') ? 2 : 1;
+    const score = priority * 100 + statusKinds.length * 10 + (24 - idx);
+    if (!best || score > best.score) best = { index: idx, unit: ally, score };
+  });
   return best;
 }
 
@@ -6116,6 +6139,7 @@ function isFogProtectedTargetForItem(card, attackerPlayerKey, targetIndex) {
 
 function getFieldAttackBonus(unit, boardIndex) {
   if (!unit) return 0;
+  if (isEnemyCenterFieldBuffHealNegated(unit, boardIndex)) return 0;
   const playerKey = unit.owner;
   const ownField = getPlayerFieldCard(playerKey);
   let bonus = 0;
@@ -6157,6 +6181,7 @@ function shouldAttackIgnoreReduction(attacker, attackerIndex, defender, defender
   if (!attacker || !defender || isUnitCenterSilenced(attacker, attackerIndex)) return false;
   if (unitHasEffectType(attacker, 'atk_plus_1_vs_buffed_or_reduced_enemy_and_ignore_reduction') && targetHasAtkBuffOrReduction(defender, defenderIndex)) return true;
   if (unitHasEffectType(attacker, 'ignore_reduction_vs_center_enemy_and_atk_plus_1_if_field_buffed') && isPointZone(defenderIndex)) return true;
+  if (unitHasEffectType(attacker, 'ignore_enemy_field_effects_self_and_center_aura_negate_enemy_field_buffs_heal_and_ignore_reduction_vs_center') && isPointZone(defenderIndex)) return true;
   return false;
 }
 
@@ -6831,6 +6856,15 @@ function getReachableMoveCells(instanceId) {
       result.push(nextIndex);
       queue.push({ index: nextIndex, steps: nextSteps });
     }
+  }
+
+  if (unitHasEffectType(unit, 'swap_with_adjacent_ally_and_cleanse_one_adjacent_status_on_swap', startIndex)) {
+    getOrthogonalNeighbors(startIndex).forEach((idx) => {
+      const ally = matchState.board[idx];
+      if (ally && ally.owner === unit.owner && ally.instanceId !== unit.instanceId && !result.includes(idx)) {
+        result.push(idx);
+      }
+    });
   }
 
   return result;
@@ -7822,12 +7856,20 @@ function moveSelectedUnit(targetIndex) {
   if (!getReachableMoveCells(matchState.selectedUnitId).includes(targetIndex)) return;
 
   const unit = matchState.board[sourceIndex];
+  const targetUnit = matchState.board[targetIndex];
+  const isSwap = !!(targetUnit
+    && targetUnit.owner === unit.owner
+    && targetUnit.instanceId !== unit.instanceId
+    && unitHasEffectType(unit, 'swap_with_adjacent_ally_and_cleanse_one_adjacent_status_on_swap', sourceIndex)
+    && getOrthogonalNeighbors(sourceIndex).includes(targetIndex));
   setPendingAction({
     type: 'move',
     unitId: unit.instanceId,
     unitName: unit.name,
     sourceIndex,
     targetIndex,
+    isSwap,
+    swapTargetUnitId: isSwap ? targetUnit.instanceId : '',
     fromLabel: formatCellLabel(sourceIndex),
     toLabel: formatCellLabel(targetIndex),
   });
@@ -7839,8 +7881,15 @@ function applyPendingMove(pendingAction) {
   if (sourceIndex < 0) return;
   const unit = matchState.board[sourceIndex];
   if (!unit) return;
-  matchState.board[pendingAction.targetIndex] = unit;
-  matchState.board[sourceIndex] = null;
+  const targetUnit = matchState.board[pendingAction.targetIndex];
+  const isSwap = !!(pendingAction.isSwap && targetUnit && targetUnit.owner === unit.owner && targetUnit.instanceId !== unit.instanceId);
+  if (isSwap) {
+    matchState.board[sourceIndex] = targetUnit;
+    matchState.board[pendingAction.targetIndex] = unit;
+  } else {
+    matchState.board[pendingAction.targetIndex] = unit;
+    matchState.board[sourceIndex] = null;
+  }
 
   const acceleratedThisTurn = matchState.turnState?.acceleratedUnitId === unit.instanceId && matchState.turnState.acceleratedMovesRemaining > 0;
   const extraMoveSourceName = getExtraMoveSourceName(unit.instanceId);
@@ -7864,9 +7913,19 @@ function applyPendingMove(pendingAction) {
     matchState.turnState.moved = true;
   }
 
+  if (isSwap && unitHasEffectType(unit, 'swap_with_adjacent_ally_and_cleanse_one_adjacent_status_on_swap', pendingAction.targetIndex)) {
+    const cleanseTarget = chooseAdjacentAllyForSwapCleanse(pendingAction.targetIndex, unit.owner, unit.instanceId);
+    if (cleanseTarget?.unit) {
+      const clearedKind = clearOneCleansableStatus(cleanseTarget.unit);
+      if (clearedKind) {
+        addLog(`${unit.name} は天輝の細剣の効果で ${cleanseTarget.unit.name} の ${getCleanseStatusLabel(clearedKind)} を解除しました`);
+      }
+    }
+  }
+
   matchState.actionMode = null;
   clearPendingAction();
-  addLog(`${PLAYER_LABEL[unit.owner]} の ${unit.name} が ${pendingAction.fromLabel} から ${pendingAction.toLabel} へ移動しました`);
+  addLog(`${PLAYER_LABEL[unit.owner]} の ${unit.name} が ${pendingAction.fromLabel} から ${pendingAction.toLabel} へ${isSwap ? '位置を入れ替えました' : '移動しました'}`);
   playSfx('move');
   if (isGlobalFieldEffectActive('field_no_attack_after_move')) {
     addLog('環境カード「暴風域」により、移動したユニットはこの手番に攻撃できません');
@@ -8391,7 +8450,7 @@ function handleBoardCellClick(index) {
   }
 
   if (pendingAction) {
-    if (pendingAction.type === 'move' && matchState.actionMode === 'move' && selectedUnit && !unit && getReachableMoveCells(matchState.selectedUnitId).includes(index)) {
+    if (pendingAction.type === 'move' && matchState.actionMode === 'move' && selectedUnit && ((!unit) || (unit.owner === matchState.currentPlayer)) && getReachableMoveCells(matchState.selectedUnitId).includes(index)) {
       moveSelectedUnit(index);
       return;
     }
@@ -8407,7 +8466,7 @@ function handleBoardCellClick(index) {
     return;
   }
 
-  if (matchState.actionMode === 'move' && selectedUnit && !unit) {
+  if (matchState.actionMode === 'move' && selectedUnit && ((!unit) || (unit.owner === matchState.currentPlayer)) && getReachableMoveCells(matchState.selectedUnitId).includes(index)) {
     moveSelectedUnit(index);
     return;
   }

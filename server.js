@@ -331,7 +331,7 @@ const SPECIAL_CARDS = [
     hp: null,
     atk: null,
     move: null,
-    effect_text: "自分のラウンド開始時、中央9マスにいる味方1体を選ぶ。そのユニットのHPを1回復し、受けている「攻撃不能」「行動不能」「移動力-1」をすべて解除する。",
+    effect_text: "ターン開始時に中央9マスにいる味方ユニットをHP1回復、受けている攻撃不能・行動不能・移動力-1をすべて解除する。",
     effect_type: "field_start_round_heal_1_and_cleanse_center_ally",
     image_file: "RV-065.png",
     unlock_only: true,
@@ -1064,6 +1064,14 @@ function hasAdjacentUnitOwnedBy(game, targetIndex, ownerKey) {
   return getOrthogonalNeighbors(targetIndex).some((idx) => game.board[idx] && game.board[idx].owner === ownerKey);
 }
 
+function isEnemyCenterFieldBuffHealNegated(game, unit, boardIndex = null) {
+  if (!unit || boardIndex == null || !isPointZoneIndex(boardIndex)) return false;
+  return game.board.some((otherUnit, idx) => {
+    if (!otherUnit || otherUnit.owner === unit.owner || !isPointZoneIndex(idx)) return false;
+    return unitHasEffectType(otherUnit, 'ignore_enemy_field_effects_self_and_center_aura_negate_enemy_field_buffs_heal_and_ignore_reduction_vs_center', game, idx);
+  });
+}
+
 function getAdjacentEnemySentryReduction(game, boardIndex, ownerKey) {
   return getOrthogonalNeighbors(boardIndex).reduce((count, idx) => {
     const unit = game.board[idx];
@@ -1146,6 +1154,14 @@ function getReachableMoveCells(game, unitId) {
       result.push(idx);
       queue.push({ index: idx, steps });
     }
+  }
+  if (unitHasEffectType(unit, 'swap_with_adjacent_ally_and_cleanse_one_adjacent_status_on_swap', game, startIndex)) {
+    getOrthogonalNeighbors(startIndex).forEach((idx) => {
+      const ally = game.board[idx];
+      if (ally && ally.owner === unit.owner && ally.instanceId !== unit.instanceId && !result.includes(idx)) {
+        result.push(idx);
+      }
+    });
   }
   return result;
 }
@@ -1252,9 +1268,10 @@ function clearExpiredStartOfTurnEffects(game, playerKey) {
   });
 }
 
-function healUnitForServer(unit, amount, round) {
+function healUnitForServer(unit, amount, round, game = null, boardIndex = null) {
   if (!unit || amount <= 0) return { healed: 0, blocked: false };
-  if (unit.negateBuffsAndHealUntilTurnStartOf || unit.noHealNoReviveUntilTurnStartOf || unit.fullSilenceUntilTurnStartOf) return { healed: 0, blocked: true };
+  const resolvedIndex = boardIndex == null && game ? getBoardIndexForUnit(game, unit) : boardIndex;
+  if (unit.negateBuffsAndHealUntilTurnStartOf || unit.noHealNoReviveUntilTurnStartOf || unit.fullSilenceUntilTurnStartOf || (game && isEnemyCenterFieldBuffHealNegated(game, unit, resolvedIndex))) return { healed: 0, blocked: true };
   const before = Number(unit.currentHp || 0);
   unit.currentHp = Math.min(Number(unit.maxHp || 0), before + Number(amount || 0));
   const healed = Math.max(0, unit.currentHp - before);
@@ -1321,11 +1338,25 @@ function chooseFieldStartCenterAllyForServer(game, playerKey) {
   return best;
 }
 
+function chooseAdjacentAllyForSwapCleanseForServer(game, unitIndex, ownerKey, excludeUnitId = '') {
+  let best = null;
+  getOrthogonalNeighbors(unitIndex).forEach((idx) => {
+    const ally = game.board[idx];
+    if (!ally || ally.owner !== ownerKey || ally.instanceId === excludeUnitId) return;
+    const statusKinds = getCleansableStatusKindsForServer(ally);
+    if (!statusKinds.length) return;
+    const priority = statusKinds.includes('action') ? 3 : statusKinds.includes('attack') ? 2 : 1;
+    const score = priority * 100 + statusKinds.length * 10 + (24 - idx);
+    if (!best || score > best.score) best = { index: idx, unit: ally, score };
+  });
+  return best;
+}
+
 function applyFieldStartOfTurnEffectsForServer(game, playerKey) {
   if (!playerHasFieldEffect(game, playerKey, 'field_start_round_heal_1_and_cleanse_center_ally')) return;
   const target = chooseFieldStartCenterAllyForServer(game, playerKey);
   if (!target?.unit) return;
-  healUnitForServer(target.unit, 1, game.round);
+  healUnitForServer(target.unit, 1, game.round, game, target.index);
   clearAllCleansableStatusesForServer(target.unit);
 }
 
@@ -1462,12 +1493,12 @@ function applyServerSideItemEffects(game, playerKey, cardId, targetIndex) {
     }
     case 'heal_single_2': {
       if (!targetUnit || targetUnit.owner !== playerKey) return;
-      healUnitForServer(targetUnit, 2, game.round);
+      healUnitForServer(targetUnit, 2, game.round, game, targetIndex);
       break;
     }
     case 'heal_single_3_atk_up_turn_1': {
       if (!targetUnit || targetUnit.owner !== playerKey) return;
-      healUnitForServer(targetUnit, 3, game.round);
+      healUnitForServer(targetUnit, 3, game.round, game, targetIndex);
       if (!targetUnit.negateBuffsAndHealUntilTurnStartOf) {
         targetUnit.tempAtkBuff = Number(targetUnit.tempAtkBuff || 0) + 1;
       }
@@ -1475,7 +1506,7 @@ function applyServerSideItemEffects(game, playerKey, cardId, targetIndex) {
     }
     case 'heal_2_and_cleanse_one_status': {
       if (!targetUnit || targetUnit.owner !== playerKey) return;
-      healUnitForServer(targetUnit, 2, game.round);
+      healUnitForServer(targetUnit, 2, game.round, game, targetIndex);
       clearOneCleansableStatusForServer(targetUnit);
       break;
     }
@@ -1909,7 +1940,13 @@ function handleMoveUnit(data, ws) {
     send(ws, { type: 'error', message: 'そのユニットは移動できません。' });
     return;
   }
-  if (game.board[targetIndex]) {
+  const targetUnit = game.board[targetIndex];
+  const canSwap = !!(targetUnit
+    && targetUnit.owner === playerKey
+    && targetUnit.instanceId !== unitId
+    && unitHasEffectType(sourceUnit, 'swap_with_adjacent_ally_and_cleanse_one_adjacent_status_on_swap', game, sourceIndex)
+    && getOrthogonalNeighbors(sourceIndex).includes(targetIndex));
+  if (targetUnit && !canSwap) {
     send(ws, { type: 'error', message: 'そのマスは埋まっています。' });
     return;
   }
@@ -1917,8 +1954,17 @@ function handleMoveUnit(data, ws) {
     send(ws, { type: 'error', message: 'その移動先は選べません。' });
     return;
   }
-  game.board[targetIndex] = sourceUnit;
-  game.board[sourceIndex] = null;
+  if (canSwap) {
+    game.board[sourceIndex] = targetUnit;
+    game.board[targetIndex] = sourceUnit;
+    const cleanseTarget = chooseAdjacentAllyForSwapCleanseForServer(game, targetIndex, playerKey, unitId);
+    if (cleanseTarget?.unit) {
+      clearOneCleansableStatusForServer(cleanseTarget.unit);
+    }
+  } else {
+    game.board[targetIndex] = sourceUnit;
+    game.board[sourceIndex] = null;
+  }
   if (game.turnState.postAttackMoveUnitId === unitId) {
     game.turnState.postAttackMoveUnitId = null;
     game.turnState.moved = true;
