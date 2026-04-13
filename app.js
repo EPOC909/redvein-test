@@ -4378,7 +4378,7 @@ function findAdjacentGuardianKnight(targetIndex, ownerKey) {
     const idx = coordToIndex(r, c);
     const unit = matchState.board[idx];
     if (!unit) continue;
-    if (unit.owner === ownerKey && unit.cardId === 'RV-032' && !unit.guardBlockUsed) {
+    if (unit.owner === ownerKey && unitHasEffectType(unit, 'guard_adjacent_ally_once') && !unit.guardBlockUsed) {
       return { unit, index: idx };
     }
   }
@@ -4631,7 +4631,7 @@ function findAdjacentReadyGuardianKnight(boardIndex, ownerKey) {
     const idx = coordToIndex(r, c);
     const unit = matchState.board[idx];
     if (!unit || unit.owner !== ownerKey) continue;
-    if ((unit.cardId === 'RV-032' || unit.name === '守護騎士') && unit.guardBlockUsed !== true) {
+    if (unitHasEffectType(unit, 'guard_adjacent_ally_once') && unit.guardBlockUsed !== true) {
       return { unit, index: idx };
     }
   }
@@ -4648,7 +4648,7 @@ function getUnitStatusBadges(unit, boardIndex = null) {
   if (canNegateDamageOnce(unit)) {
     badges.push({ kind: 'guard-ready', value: '1', title: '騎士: 試合中1回だけダメージを無効化します' });
   }
-  const selfGuardReady = (unit.cardId === 'RV-032' || unit.name === '守護騎士') && unit.guardBlockUsed !== true;
+  const selfGuardReady = unitHasEffectType(unit, 'guard_adjacent_ally_once') && unit.guardBlockUsed !== true;
   const protectedByGuardian = boardIndex != null ? findAdjacentReadyGuardianKnight(boardIndex, unit.owner) : null;
   if (selfGuardReady || (protectedByGuardian && protectedByGuardian.unit.instanceId !== unit.instanceId)) {
     badges.push({ kind: 'guard-ready', value: '1', title: selfGuardReady ? '守護騎士: 隣接する味方への攻撃を1回だけ完全防御' : `${protectedByGuardian.unit.name}: このユニットへの攻撃を1回だけ完全防御` });
@@ -8611,8 +8611,84 @@ function exportRoomSyncSnapshot() {
   };
 }
 
+
+function buildDefaultRoomTurnState() {
+  return {
+    moved: false,
+    movedUnitId: null,
+    attacked: false,
+    attackCount: 0,
+    attackUnitId: null,
+    itemWindowOpen: true,
+    itemUsed: false,
+    selectedItemCardId: null,
+    selectedItemTargetIndex: null,
+    pendingAction: null,
+    acceleratedUnitId: null,
+    acceleratedMovesRemaining: 0,
+    royalCommandUnitId: null,
+    royalCommandAttackReady: false,
+    postAttackMoveUnitId: null,
+    pendingRedeployCardId: null,
+    pendingRedeployOwner: null,
+  };
+}
+
+function importRoomSyncSnapshot(snapshot = {}) {
+  if (!snapshot || typeof snapshot !== 'object') return false;
+  if (Array.isArray(snapshot.board) && snapshot.board.length === 25) {
+    matchState.board = snapshot.board.map((unit) => unit ? { ...unit } : null);
+  }
+  if (snapshot.players && typeof snapshot.players === 'object') {
+    ['player1', 'player2'].forEach((key) => {
+      const source = snapshot.players[key];
+      if (!source || typeof source !== 'object') return;
+      const target = matchState.players[key] || createEmptyPlayerState();
+      if (Array.isArray(source.reserveBattleIds)) target.reserveBattleIds = source.reserveBattleIds.map(String);
+      if (Array.isArray(source.battleDeckIds)) target.battleDeckIds = source.battleDeckIds.map(String);
+      if (typeof source.fieldId === 'string') target.fieldId = source.fieldId;
+      if (Array.isArray(source.itemStates)) {
+        target.itemStates = source.itemStates.map((item) => ({ cardId: String(item.cardId || ''), used: !!item.used }));
+      }
+      if (typeof source.defeated === 'number') target.defeated = Number(source.defeated || 0);
+      if (typeof source.teamDamageReduction === 'number') target.teamDamageReduction = Number(source.teamDamageReduction || 0);
+      if (typeof source.teamDamageReductionExpiresOnOwnTurnStart === 'boolean') target.teamDamageReductionExpiresOnOwnTurnStart = !!source.teamDamageReductionExpiresOnOwnTurnStart;
+      if (typeof source.negateEnemyFieldUntilOwnTurnStart === 'boolean') target.negateEnemyFieldUntilOwnTurnStart = !!source.negateEnemyFieldUntilOwnTurnStart;
+      matchState.players[key] = target;
+    });
+  }
+  if (snapshot.turnState && typeof snapshot.turnState === 'object') {
+    matchState.turnState = {
+      ...buildDefaultRoomTurnState(),
+      ...snapshot.turnState,
+      itemWindowOpen: !!snapshot.turnState.itemWindowOpen,
+      itemUsed: !!snapshot.turnState.itemUsed,
+      moved: !!snapshot.turnState.moved,
+      attacked: !!snapshot.turnState.attacked,
+      attackCount: Number(snapshot.turnState.attackCount || 0),
+      acceleratedMovesRemaining: Number(snapshot.turnState.acceleratedMovesRemaining || 0),
+      royalCommandAttackReady: !!snapshot.turnState.royalCommandAttackReady,
+    };
+  }
+  if (Array.isArray(snapshot.pendingRevives)) matchState.pendingRevives = [...snapshot.pendingRevives];
+  if (Array.isArray(snapshot.pendingRedeploys)) matchState.pendingRedeploys = [...snapshot.pendingRedeploys];
+  if (typeof snapshot.phase === 'string') matchState.phase = snapshot.phase;
+  if (typeof snapshot.currentPlayer === 'string') matchState.currentPlayer = snapshot.currentPlayer;
+  if (typeof snapshot.round === 'number') matchState.round = Number(snapshot.round || 1);
+  if (typeof snapshot.setupStepIndex === 'number') matchState.setupStepIndex = Number(snapshot.setupStepIndex || 0);
+  if (typeof snapshot.placedInCurrentStep === 'number') matchState.placedInCurrentStep = Number(snapshot.placedInCurrentStep || 0);
+  if (Object.prototype.hasOwnProperty.call(snapshot, 'winner')) matchState.winner = snapshot.winner || null;
+  matchState.selectedUnitId = null;
+  matchState.selectedReserveCardId = null;
+  matchState.actionMode = null;
+  return true;
+}
+
 function applyRoomStateSync(data = {}) {
   clearRoomPendingRequests();
+  if (data.snapshot && typeof data.snapshot === 'object') {
+    importRoomSyncSnapshot(data.snapshot);
+  }
   const wasFinished = matchState.phase === 'finished';
   if (typeof data.currentPlayer === 'string') matchState.currentPlayer = data.currentPlayer;
   if (typeof data.round === 'number') matchState.round = data.round;

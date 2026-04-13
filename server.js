@@ -1558,6 +1558,7 @@ function mergePublicStateSnapshot(room, payload, playerKey) {
     winner: room.game.winner || '',
     itemPhaseOpen: room.game.itemPhaseOpen,
     itemUsed: room.game.itemUsed,
+    snapshot: payload,
   };
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([role, slot]) => {
     if (slot?.ws) {
