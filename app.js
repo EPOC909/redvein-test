@@ -3451,7 +3451,7 @@ function getAttackPresentationProfile(attacker, sourceIndex, targetIndex, defend
     return {
       ...base,
       kind: 'projectile',
-      tone: attacker.cardId === 'RV-045' ? 'holy' : 'attack',
+      tone: (isUnitCardEffectActive(attacker) && attacker.cardId === 'RV-045') ? 'holy' : 'attack',
       projectile: true,
       lunge: false,
       travelDuration: 360,
@@ -3461,7 +3461,7 @@ function getAttackPresentationProfile(attacker, sourceIndex, targetIndex, defend
     };
   }
 
-  if (attacker.cardId === 'RV-033' || unitHasEffectType(attacker, 'pierce_line_2')) {
+  if ((isUnitCardEffectActive(attacker) && attacker.cardId === 'RV-033') || unitHasEffectType(attacker, 'pierce_line_2')) {
     return {
       ...base,
       kind: 'pierce',
@@ -3476,7 +3476,7 @@ function getAttackPresentationProfile(attacker, sourceIndex, targetIndex, defend
     };
   }
 
-  if (attacker.cardId === 'RV-039') {
+  if (isUnitCardEffectActive(attacker) && attacker.cardId === 'RV-039') {
     return {
       ...base,
       kind: 'shadow',
@@ -3490,7 +3490,7 @@ function getAttackPresentationProfile(attacker, sourceIndex, targetIndex, defend
     };
   }
 
-  if (attacker.cardId === 'RV-040') {
+  if (isUnitCardEffectActive(attacker) && attacker.cardId === 'RV-040') {
     return {
       ...base,
       kind: 'slash',
@@ -3505,7 +3505,7 @@ function getAttackPresentationProfile(attacker, sourceIndex, targetIndex, defend
     };
   }
 
-  if (attacker.cardId === 'RV-028' && options.backstab) {
+  if (isUnitCardEffectActive(attacker) && attacker.cardId === 'RV-028' && options.backstab) {
     return {
       ...base,
       kind: 'shadow',
@@ -4346,7 +4346,7 @@ function getAdjacentGuardianReduction(targetIndex, ownerKey) {
     if (r < 0 || r > 4 || c < 0 || c > 4) continue;
     const unit = matchState.board[coordToIndex(r, c)];
     if (!unit) continue;
-    if (unit.owner === ownerKey && unit.cardId === 'RV-013') count += 1;
+    if (unit.owner === ownerKey && unit.cardId === 'RV-013' && isUnitCardEffectActive(unit, coordToIndex(r, c))) count += 1;
   }
   return count;
 }
@@ -4362,7 +4362,7 @@ function getAdjacentEnemySentryReduction(targetIndex, ownerKey) {
     if (r < 0 || r > 4 || c < 0 || c > 4) continue;
     const unit = matchState.board[coordToIndex(r, c)];
     if (!unit) continue;
-    if (unit.owner !== ownerKey && unit.cardId === 'RV-011') count += 1;
+    if (unit.owner !== ownerKey && unit.cardId === 'RV-011' && isUnitCardEffectActive(unit, coordToIndex(r, c))) count += 1;
   }
   return count;
 }
@@ -4432,7 +4432,7 @@ function targetHasFieldBuffOrReduction(defender, defenderIndex) {
 function getTargetedAttackBonus(attacker, attackerIndex, defender, defenderIndex) {
   if (!attacker || !defender || isUnitBuffsAndHealNegated(attacker) || isUnitCenterSilenced(attacker, attackerIndex)) return 0;
   let bonus = 0;
-  if (attacker.cardId === 'RV-028' && isBackAttack(attackerIndex, defenderIndex, defender.owner)) bonus += 1;
+  if (isUnitCardEffectActive(attacker, attackerIndex) && attacker.cardId === 'RV-028' && isBackAttack(attackerIndex, defenderIndex, defender.owner)) bonus += 1;
   if (unitHasEffectType(attacker, 'atk_plus_1_vs_full_or_healed_enemy')) {
     const isFull = Number(defender.currentHp || 0) >= Number(defender.maxHp || 0);
     const healedThisRound = Number(defender.healedInRound || 0) === Number(matchState.round || 0);
@@ -4587,6 +4587,7 @@ function getStatusBadgeIcon(kind) {
 function getUnitAbilityBadges(unit) {
   const meta = getUnitMeta(unit);
   if (!meta) return [];
+  if (isUnitCenterSilenced(unit)) return [];
   const effectType = String(meta.effect_type || '');
   const badges = [];
   const push = (kind, label, title) => badges.push({ kind, label, title });
@@ -5633,6 +5634,10 @@ function isUnitCenterSilenced(unit, boardIndex = null) {
 
 function unitHasNoHealNoRevive(unit) {
   return !!(unit && unit.noHealNoReviveUntilTurnStartOf);
+}
+
+function isUnitCardEffectActive(unit, boardIndex = null) {
+  return !!unit && !isUnitCenterSilenced(unit, boardIndex);
 }
 
 function unitHasEffectType(unit, effectType) {
@@ -7723,23 +7728,23 @@ function attackWithSelectedUnit(targetIndex) {
     targetIndex,
     targetName: defender.name,
     damage: getAttackDamageAgainst(attacker, sourceIndex, defender, targetIndex),
-    bonusText: attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, targetIndex, defender.owner) ? '背後攻撃 +1' : '',
+    bonusText: isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, targetIndex, defender.owner) ? '背後攻撃 +1' : '',
   };
 
-  if (attacker.cardId === 'RV-017') {
+  if (isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-017') {
     pending.previewText = `${defender.name} を攻撃し、同じ方向の2マス目に敵がいれば追加ダメージを与えます。よければ確定してください。`;
   } else if (unitHasEffectType(attacker, 'range_2')) {
     const distance = getLineIndicesFromAttack(sourceIndex, targetIndex, 2).indexOf(targetIndex) + 1;
     pending.previewText = distance >= 2
       ? `${defender.name} は2マス先の敵ですが、弓兵の効果で攻撃できます。よければ確定してください。`
       : `${defender.name} を攻撃します。よければ確定してください。`;
-  } else if (attacker.cardId === 'RV-031') {
+  } else if (isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-031') {
     pending.previewText = `${defender.name} を攻撃します。攻撃後、狂戦士は自身に1ダメージを受けます。よければ確定してください。`;
-  } else if (attacker.cardId === 'RV-033') {
+  } else if (isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-033') {
     pending.previewText = `${formatCellLabel(targetIndex)} 方向へ貫通攻撃します。1マス目と2マス目の敵に軽減無視ダメージを与えます。よければ確定してください。`;
-  } else if (attacker.cardId === 'RV-034' || unitHasEffectType(attacker, 'splash_adjacent_enemy_1_on_attack')) {
+  } else if ((isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-034') || unitHasEffectType(attacker, 'splash_adjacent_enemy_1_on_attack')) {
     pending.previewText = `${defender.name} を攻撃し、その対象に隣接する他の敵にも1ダメージを与えます。よければ確定してください。`;
-  } else if (attacker.cardId === 'RV-040') {
+  } else if (isUnitCardEffectActive(attacker) && attacker.cardId === 'RV-040') {
     pending.previewText = `${defender.name} を攻撃し、さらに炎魔剣士の周囲1マスにいる全ユニットへ1ダメージを与えます（敵味方両方）。よければ確定してください。`;
   } else if (unitHasEffectType(attacker, 'on_kill_permanent_atk_plus_1')) {
     pending.previewText = `${defender.name} を攻撃します。血王 ヴェインが敵を撃破すると、攻撃力が1永続で上昇します。よければ確定してください。`;
@@ -7767,7 +7772,7 @@ function applyPendingAttack(pendingAction) {
   const defender = matchState.board[pendingAction.targetIndex];
   if (!attacker || !defender || defender.owner === attacker.owner) return;
 
-  const backstabTriggered = attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, pendingAction.targetIndex, defender.owner);
+  const backstabTriggered = isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, pendingAction.targetIndex, defender.owner);
   const royalCommandAttackBoost = getRoyalCommandAttackBonus(attacker);
   const applyNoHealNoReviveUntilTurnStartOf = attacker.nextAttackAppliesNoHealNoRevive ? attacker.owner : '';
   let markedAttackConsumed = false;
@@ -7815,7 +7820,7 @@ function applyPendingAttack(pendingAction) {
     return result;
   };
 
-  if (attacker.cardId === 'RV-017') {
+  if (isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-017') {
     const line = getLineIndicesFromAttack(sourceIndex, pendingAction.targetIndex, 2);
     line.forEach((idx) => {
       const target = matchState.board[idx];
@@ -7823,7 +7828,7 @@ function applyPendingAttack(pendingAction) {
       const damage = getAttackDamageAgainst(attacker, sourceIndex, target, idx);
       resolveAttackHit(idx, damage);
     });
-  } else if (attacker.cardId === 'RV-033') {
+  } else if (isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-033') {
     const line = getLineIndicesFromAttack(sourceIndex, pendingAction.targetIndex, 2);
     line.forEach((idx) => {
       const target = matchState.board[idx];
@@ -7831,7 +7836,7 @@ function applyPendingAttack(pendingAction) {
       const damage = getEffectiveAtk(attacker, sourceIndex);
       resolveAttackHit(idx, damage, { ignoreReduction: true });
     });
-  } else if (attacker.cardId === 'RV-034' || unitHasEffectType(attacker, 'splash_adjacent_enemy_1_on_attack')) {
+  } else if ((isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-034') || unitHasEffectType(attacker, 'splash_adjacent_enemy_1_on_attack')) {
     const originalTargetIndex = pendingAction.targetIndex;
     const splashTargets = getOrthogonalNeighbors(originalTargetIndex)
       .filter((idx) => idx !== originalTargetIndex)
@@ -7887,7 +7892,7 @@ function applyPendingAttack(pendingAction) {
   const attackerStillAliveIndex = findUnitIndexById(pendingAction.unitId);
   const attackerStillAlive = attackerStillAliveIndex >= 0 ? matchState.board[attackerStillAliveIndex] : null;
 
-  if (attackerStillAlive && attackerStillAlive.cardId === 'RV-040') {
+  if (attackerStillAlive && isUnitCardEffectActive(attackerStillAlive, attackerStillAliveIndex) && attackerStillAlive.cardId === 'RV-040') {
     const aroundTargets = getChebyshevNeighbors(attackerStillAliveIndex, 1)
       .filter((idx) => idx !== attackerStillAliveIndex)
       .filter((idx) => !!matchState.board[idx]);
@@ -7917,7 +7922,7 @@ function applyPendingAttack(pendingAction) {
 
   const attackerAfterEffectsIndex = findUnitIndexById(pendingAction.unitId);
   const attackerAfterEffects = attackerAfterEffectsIndex >= 0 ? matchState.board[attackerAfterEffectsIndex] : null;
-  if (attackerAfterEffects && attackerAfterEffects.cardId === 'RV-031') {
+  if (attackerAfterEffects && isUnitCardEffectActive(attackerAfterEffects, attackerAfterEffectsIndex) && attackerAfterEffects.cardId === 'RV-031') {
     addLog(`${attackerAfterEffects.name} は狂戦士の反動で自身に1ダメージを受けます`);
     applyDamageToIndex(attackerAfterEffectsIndex, 1, `${attackerAfterEffects.name} の反動で`, { creditPlayerKey: null });
   }
@@ -7963,15 +7968,15 @@ function applyPendingAttack(pendingAction) {
     if (shadowProfile) specialAttackFxQueue.push({ index: shadowReturnIndex, profile: shadowProfile, delay: 520 });
   }
   if (attackerAfterAllEffects && attackerCurrentIndex >= 0) {
-    if (attackerAfterAllEffects.cardId === 'RV-047') {
+    if (isUnitCardEffectActive(attackerAfterAllEffects, attackerCurrentIndex) && attackerAfterAllEffects.cardId === 'RV-047') {
       const drainProfile = getCardSignatureProfile('RV-047', 'buff');
       if (drainProfile) specialAttackFxQueue.push({ index: attackerCurrentIndex, profile: drainProfile, delay: 380 });
     }
-    if (attackerAfterAllEffects.cardId === 'RV-049' && defeatedByAttack > 0) {
+    if (isUnitCardEffectActive(attackerAfterAllEffects, attackerCurrentIndex) && attackerAfterAllEffects.cardId === 'RV-049' && defeatedByAttack > 0) {
       const bloodProfile = getCardSignatureProfile('RV-049', 'buff');
       if (bloodProfile) specialAttackFxQueue.push({ index: attackerCurrentIndex, profile: bloodProfile, delay: 420 });
     }
-    if (attackerAfterAllEffects.cardId === 'RV-046') {
+    if (isUnitCardEffectActive(attackerAfterAllEffects, attackerCurrentIndex) && attackerAfterAllEffects.cardId === 'RV-046') {
       const rapidProfile = getCardSignatureProfile('RV-046', 'buff');
       if (rapidProfile) specialAttackFxQueue.push({ index: attackerCurrentIndex, profile: rapidProfile, delay: 360 });
     }
@@ -8506,7 +8511,7 @@ function applyRoomAttack(data = {}) {
     targetName: defender.name,
     actorPlayer,
     damage: getAttackDamageAgainst(attacker, sourceIndex, defender, targetIndex),
-    bonusText: attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, targetIndex, defender.owner) ? '背後攻撃 +1' : '',
+    bonusText: isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, targetIndex, defender.owner) ? '背後攻撃 +1' : '',
   });
   return true;
 }
