@@ -199,7 +199,7 @@
     "hp": 2,
     "atk": 2,
     "move": 1,
-    "effect_text": "攻撃方向にいる2体目の敵にも1ダメージを与える",
+    "effect_text": "攻撃した敵の後ろに別の敵ユニットがいれば、そのユニットにも同じダメージを与える",
     "effect_type": "pierce_line_2",
     "image_file": "RV-017.png"
   },
