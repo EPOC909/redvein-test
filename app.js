@@ -4623,10 +4623,13 @@ function getUnitAbilityBadges(unit) {
   const badges = [];
   const push = (kind, label, title) => badges.push({ kind, label, title });
 
-  if (['range_2', 'row_range_attack', 'pierce_line_2'].includes(effectType)) {
+  const isRangedEffect = effectType === 'range_2'
+    || effectType === 'row_range_attack'
+    || (effectType === 'pierce_line_2' && unit.cardId !== 'RV-017');
+  if (isRangedEffect) {
     push('ability-range', '遠', effectType === 'row_range_attack' ? '遠距離攻撃: 同じ横一列の敵を攻撃できます' : effectType === 'pierce_line_2' ? '遠距離攻撃: 直線2マス先まで攻撃できます' : '遠距離攻撃: 2マス先の敵も攻撃できます');
   }
-  if (effectType === 'pierce_line_2') push('ability-pierce', '貫', '貫通攻撃: 軽減無視の直線攻撃です');
+  if (effectType === 'pierce_line_2' && unit.cardId !== 'RV-017') push('ability-pierce', '貫', '貫通攻撃: 軽減無視の直線攻撃です');
   if (effectType === 'double_attack') push('ability-speed', '連', '連撃: 1ターンに2回攻撃できます');
   if (effectType === 'move_after_attack_1') push('ability-speed', '迅', '攻撃後移動: 攻撃後に1マス移動できます');
   if (['return_to_home_row_after_attack', 'return_and_redeploy_full_heal'].includes(effectType)) push('ability-shadow', '影', '影の暗殺者: 攻撃後、自陣の同じ段に戻ります。戻り先が埋まっている場合は戻りません');
@@ -6405,7 +6408,9 @@ function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
   if (!defender) return { defeated: false, damage: 0, reduced: 0, blocked: false };
   const ignoreReduction = !!options.ignoreReduction;
   const hasExplicitCredit = Object.prototype.hasOwnProperty.call(options, 'creditPlayerKey');
-  const creditPlayerKey = hasExplicitCredit ? options.creditPlayerKey : matchState.currentPlayer;
+  const creditPlayerKey = hasExplicitCredit
+    ? options.creditPlayerKey
+    : ((options.sourceType === 'enemy_item' && defender.owner === matchState.currentPlayer) ? null : matchState.currentPlayer);
   const reductionParts = ignoreReduction ? [] : getUnitDamageReductionParts(defender, targetIndex, { attacker: options.attacker || null, sourceType: options.sourceType || '' });
   const totalReduction = reductionParts.reduce((sum, part) => sum + Number(part.value || 0), 0);
   const requestedDamage = Math.max(0, Number(damage || 0));
@@ -6617,7 +6622,7 @@ function applyItemEffect(card, playerKey) {
       const removedHp = Math.max(1, Number(destroyedUnit.currentHp || 1));
       matchState.board[targetIndex] = null;
       clearPendingRedeployForUnit(destroyedUnit);
-      getPlayerState(playerKey).defeated += 1;
+      if (destroyedUnit.owner !== playerKey) getPlayerState(playerKey).defeated += 1;
       addLog(`${actorLabel}: ${card.card_name} で ${destroyedUnit.name} を即座に破壊しました`);
       queueUnitRevive(destroyedUnit);
       return success({ targets: [targetIndex], defeated: true, impacts: [{ index: targetIndex, kind: 'damage', amount: removedHp, defeated: true, visualEntry, label: 'BREAK', heavy: true }] });
@@ -6637,7 +6642,7 @@ function applyItemEffect(card, playerKey) {
       const removedHp = Math.max(1, Number(destroyedUnit.currentHp || 1));
       matchState.board[targetIndex] = null;
       clearPendingRedeployForUnit(destroyedUnit);
-      getPlayerState(playerKey).defeated += 1;
+      if (destroyedUnit.owner !== playerKey) getPlayerState(playerKey).defeated += 1;
       addLog(`${actorLabel}: ${card.card_name} で ${destroyedUnit.name} を破壊し、復活を封じました`);
       return success({ targets: [targetIndex], defeated: true, impacts: [{ index: targetIndex, kind: 'damage', amount: removedHp, defeated: true, visualEntry, label: 'SEAL', heavy: true }] });
     }
@@ -6896,7 +6901,7 @@ function getAttackTargets(instanceId) {
       .filter((index) => matchState.board[index] && matchState.board[index].owner !== matchState.currentPlayer)
   );
 
-  if (unitHasEffectType(unit, 'range_2') || unitHasEffectType(unit, 'pierce_line_2')) {
+  if (unitHasEffectType(unit, 'range_2') || (unitHasEffectType(unit, 'pierce_line_2') && unit.cardId !== 'RV-017')) {
     const lines = [
       [[row - 1, col], [row - 2, col]],
       [[row + 1, col], [row + 2, col]],

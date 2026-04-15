@@ -1187,7 +1187,7 @@ function getAttackTargets(game, unitId) {
       .filter((idx) => game.board[idx] && game.board[idx].owner !== game.currentPlayer)
   );
 
-  if (unitHasEffectType(unit, 'range_2', game, startIndex) || unitHasEffectType(unit, 'pierce_line_2', game, startIndex)) {
+  if (unitHasEffectType(unit, 'range_2', game, startIndex) || (unitHasEffectType(unit, 'pierce_line_2', game, startIndex) && unit.cardId !== 'RV-017')) {
     [
       [[row - 1, col], [row - 2, col]],
       [[row + 1, col], [row + 2, col]],
