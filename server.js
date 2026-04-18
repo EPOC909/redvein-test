@@ -1187,7 +1187,7 @@ function getAttackTargets(game, unitId) {
       .filter((idx) => game.board[idx] && game.board[idx].owner !== game.currentPlayer)
   );
 
-  if (unitHasEffectType(unit, 'range_2', game, startIndex) || (unitHasEffectType(unit, 'pierce_line_2', game, startIndex) && unit.cardId !== 'RV-017')) {
+  if (unitHasEffectType(unit, 'range_2', game, startIndex) || unitHasEffectType(unit, 'pierce_line_2', game, startIndex)) {
     [
       [[row - 1, col], [row - 2, col]],
       [[row + 1, col], [row + 2, col]],
@@ -2429,6 +2429,7 @@ wss.on('connection', (ws) => {
         case 'join_room': handleJoinRoom(data, ws, false); break;
         case 'spectate_room': handleJoinRoom(data, ws, true); break;
         case 'reconnect_room': handleReconnectRoom(data, ws); break;
+        case 'heartbeat': send(ws, { type: 'heartbeat_ack', roomId: ws.meta?.roomId || String(data.roomId || '').toUpperCase() || '' }); break;
         case 'start_game': handleStartGame(data, ws); break;
         case 'place_setup_unit': handlePlaceSetupUnit(data, ws); break;
         case 'move_unit': handleMoveUnit(data, ws); break;

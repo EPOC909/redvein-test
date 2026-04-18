@@ -60,6 +60,10 @@
   };
   let reconnectTimer = null;
   let manualReconnectInFlight = false;
+  let socketHeartbeatTimer = null;
+  let lastServerActivityAt = 0;
+  const SOCKET_HEARTBEAT_INTERVAL_MS = 20000;
+  const SOCKET_HEARTBEAT_STALE_MS = 65000;
 
   let roomActionBox = null;
   let roomActionStatus = null;
@@ -422,7 +426,6 @@ ${roomLog.textContent}` : line;
     sendRoomActionRequest('reset', requested);
   }
 
-
   function requestSurrender() {
     const myRole = currentRole === 'p1' || currentRole === 'p2' ? currentRole : '';
     if (!myRole) {
@@ -462,6 +465,8 @@ ${roomLog.textContent}` : line;
     updateStartUi();
     updateRoomActionUi();
     updateLobbyHero();
+    clearReconnectTimer();
+    clearSocketHeartbeat();
     localStorage.removeItem(ROOM_STORAGE_KEY);
     if (api && typeof api.resetTestMatch === 'function') {
       api.resetTestMatch();
@@ -584,6 +589,52 @@ ${roomLog.textContent}` : line;
     }
   }
 
+  function markServerActivity() {
+    lastServerActivityAt = Date.now();
+  }
+
+  function clearSocketHeartbeat() {
+    if (socketHeartbeatTimer) {
+      clearInterval(socketHeartbeatTimer);
+      socketHeartbeatTimer = null;
+    }
+  }
+
+  function startSocketHeartbeat() {
+    clearSocketHeartbeat();
+    markServerActivity();
+    socketHeartbeatTimer = setInterval(() => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      if ((Date.now() - lastServerActivityAt) > SOCKET_HEARTBEAT_STALE_MS) {
+        writeLog('通信が一定時間止まったため、再接続します。');
+        try {
+          socket.close();
+        } catch (error) {
+          console.error(error);
+          scheduleReconnectAttempt();
+        }
+        return;
+      }
+      sendMessage({ type: 'heartbeat', roomId: currentRoomId || '' }, { silent: true });
+    }, SOCKET_HEARTBEAT_INTERVAL_MS);
+  }
+
+  function recoverFromSocketSendFailure(message = '通信が切れたため、操作を送れませんでした。自動復帰を試します。') {
+    const api = window.REDVEIN_ROOM_API;
+    writeLog(message);
+    if (api && typeof api.notifyRoomRequestError === 'function') {
+      api.notifyRoomRequestError();
+    }
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      try {
+        socket.close();
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    scheduleReconnectAttempt();
+  }
+
   async function tryReconnectSilently() {
     const saved = readSession();
     if (!saved || !saved.roomId || !saved.reconnectToken) return;
@@ -626,6 +677,8 @@ ${roomLog.textContent}` : line;
 
       socket.addEventListener('open', () => {
         clearReconnectTimer();
+        markServerActivity();
+        startSocketHeartbeat();
         updateSocketState('接続済み', true);
         updateStartUi();
         resolve(socket);
@@ -638,6 +691,7 @@ ${roomLog.textContent}` : line;
       }, { once: true });
 
       socket.addEventListener('close', () => {
+        clearSocketHeartbeat();
         socket = null;
         updateSocketState('切断', false);
         updateStartUi();
@@ -646,6 +700,7 @@ ${roomLog.textContent}` : line;
 
       socket.addEventListener('message', (event) => {
         try {
+          markServerActivity();
           const data = JSON.parse(event.data);
           handleServerMessage(data);
         } catch (error) {
@@ -655,12 +710,20 @@ ${roomLog.textContent}` : line;
     });
   }
 
-  function sendMessage(payload) {
+  function sendMessage(payload, options = {}) {
+    const silent = !!options.silent;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
-      writeLog('サーバーに接続できていません。');
-      return;
+      if (!silent) writeLog('サーバーに接続できていません。');
+      return false;
     }
-    socket.send(JSON.stringify(payload));
+    try {
+      socket.send(JSON.stringify(payload));
+      return true;
+    } catch (error) {
+      console.error(error);
+      if (!silent) writeLog('サーバーへの送信に失敗しました。');
+      return false;
+    }
   }
 
   function currentRoleToPlayerKey() {
@@ -678,7 +741,7 @@ ${roomLog.textContent}` : line;
       type: 'sync_public_state',
       roomId: currentRoomId,
       snapshot: api.exportRoomSyncSnapshot(),
-    });
+    }, { silent: true });
   }
 
   function readUnlockAuthPayload() {
@@ -750,16 +813,17 @@ ${roomLog.textContent}` : line;
       role: currentRole,
       battleControlsEnabled: getBattleControlsEnabled(),
       onSetupPlaceRequest: ({ player, cardId, targetIndex }) => {
-        sendMessage({
+        const ok = sendMessage({
           type: 'place_setup_unit',
           roomId: currentRoomId,
           player,
           cardId,
           targetIndex,
         });
+        if (!ok) recoverFromSocketSendFailure();
       },
       onMoveRequest: ({ player, unitId, sourceIndex, targetIndex }) => {
-        sendMessage({
+        const ok = sendMessage({
           type: 'move_unit',
           roomId: currentRoomId,
           player,
@@ -767,9 +831,10 @@ ${roomLog.textContent}` : line;
           sourceIndex,
           targetIndex,
         });
+        if (!ok) recoverFromSocketSendFailure();
       },
       onAttackRequest: ({ player, unitId, sourceIndex, targetIndex }) => {
-        sendMessage({
+        const ok = sendMessage({
           type: 'attack_unit',
           roomId: currentRoomId,
           player,
@@ -777,29 +842,33 @@ ${roomLog.textContent}` : line;
           sourceIndex,
           targetIndex,
         });
+        if (!ok) recoverFromSocketSendFailure();
       },
       onItemUseRequest: ({ player, cardId, targetIndex }) => {
-        sendMessage({
+        const ok = sendMessage({
           type: 'use_item',
           roomId: currentRoomId,
           player,
           cardId,
           targetIndex,
         });
+        if (!ok) recoverFromSocketSendFailure();
       },
       onFinishItemPhaseRequest: ({ player }) => {
-        sendMessage({
+        const ok = sendMessage({
           type: 'finish_item_phase',
           roomId: currentRoomId,
           player,
         });
+        if (!ok) recoverFromSocketSendFailure();
       },
       onEndTurnRequest: ({ player }) => {
-        sendMessage({
+        const ok = sendMessage({
           type: 'end_turn',
           roomId: currentRoomId,
           player,
         });
+        if (!ok) recoverFromSocketSendFailure();
       },
     });
   }
@@ -853,6 +922,10 @@ ${roomLog.textContent}` : line;
 
     if (data.type === 'room_snapshot') {
       applyRoomSnapshot(data);
+      return;
+    }
+
+    if (data.type === 'heartbeat_ack') {
       return;
     }
 
