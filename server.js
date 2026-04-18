@@ -8,7 +8,6 @@ const HOST = '0.0.0.0';
 const PORT = process.env.PORT || 3000;
 const ROOT_DIR = __dirname;
 const CARD_JSON_PATH = path.join(ROOT_DIR, 'data', 'redvein_cards.json');
-const ROOM_STORE_PATH = path.join(ROOT_DIR, 'redvein_room_store.json');
 const UNLOCK_TOKEN_SECRET = process.env.REDVEIN_UNLOCK_SECRET || 'redvein-unlock-secret-v18';
 
 const SPECIAL_CARDS = [
@@ -454,6 +453,10 @@ const MIME_TYPES = {
 };
 
 const rooms = new Map();
+const ROOM_STATE_PATH = path.join(ROOT_DIR, 'rooms_state.json');
+const ROOM_PERSIST_VERSION = 1;
+const ROOM_PERSIST_DEBOUNCE_MS = 250;
+const ROOM_STALE_DELETE_MS = 24 * 60 * 60 * 1000;
 const baseCards = loadCards();
 const cards = [...baseCards, ...SPECIAL_CARDS];
 const cardMap = new Map(cards.map((card) => [card.card_id, card]));
@@ -469,8 +472,8 @@ const SETUP_SEQUENCE = [
 const HOME_COLUMN = { player1: 0, player2: 4 };
 const PLAYER_ROLE_MAP = { p1: 'player1', p2: 'player2' };
 const DUPLICATE_WINDOW_MS = 700;
-const RECONNECT_GRACE_MS = 30 * 60 * 1000;
-const ACTIVE_GAME_RECONNECT_GRACE_MS = 12 * 60 * 60 * 1000;
+const RECONNECT_GRACE_MS = 12 * 60 * 60 * 1000;
+let persistRoomsTimer = null;
 
 function loadCards() {
   try {
@@ -660,6 +663,129 @@ function createEmptyRoom(roomId) {
   };
 }
 
+function cloneJsonSafe(value, fallback) {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function persistableParticipant(slot) {
+  if (!slot) return null;
+  const { ws, ...rest } = slot;
+  return {
+    ...cloneJsonSafe(rest, {}),
+    role: slot.role,
+    reconnectToken: String(slot.reconnectToken || crypto.randomUUID()),
+    disconnectedAt: Number(slot.disconnectedAt || 0),
+    joinedAt: Number(slot.joinedAt || Date.now()),
+  };
+}
+
+function persistableRoom(room) {
+  if (!room) return null;
+  return {
+    roomId: String(room.roomId || '').toUpperCase(),
+    roomState: computeRoomState(room),
+    p1: persistableParticipant(room.p1),
+    p2: persistableParticipant(room.p2),
+    spectator: persistableParticipant(room.spectator),
+    game: cloneJsonSafe(room.game, null),
+    controlRequests: serializeControlRequests(room),
+    updatedAt: Number(room.updatedAt || Date.now()),
+  };
+}
+
+function writeRoomsToDisk() {
+  persistRoomsTimer = null;
+  try {
+    const payload = {
+      v: ROOM_PERSIST_VERSION,
+      savedAt: Date.now(),
+      rooms: Array.from(rooms.values())
+        .map((room) => persistableRoom(room))
+        .filter(Boolean),
+    };
+    fs.writeFileSync(ROOM_STATE_PATH, JSON.stringify(payload), 'utf-8');
+  } catch (error) {
+    console.error('ルーム保存に失敗しました。', error);
+  }
+}
+
+function scheduleRoomsPersist() {
+  if (persistRoomsTimer) clearTimeout(persistRoomsTimer);
+  persistRoomsTimer = setTimeout(writeRoomsToDisk, ROOM_PERSIST_DEBOUNCE_MS);
+  if (typeof persistRoomsTimer.unref === 'function') persistRoomsTimer.unref();
+}
+
+function markRoomChanged(room) {
+  if (room) {
+    room.updatedAt = Date.now();
+    room.roomState = computeRoomState(room);
+  }
+  scheduleRoomsPersist();
+}
+
+function hydrateParticipant(raw, role, hydratedAt) {
+  if (!raw || typeof raw !== 'object') return null;
+  const deckPayload = role === 'spectator' ? null : sanitizeDeckPayload(raw.deckPayload);
+  return {
+    role,
+    displayName: String(raw.displayName || '名無しプレイヤー'),
+    deckName: String(raw.deckName || deckPayload?.name || 'デッキ未選択'),
+    deckPayload,
+    saveKey: normalizeSaveKey(raw.saveKey || ''),
+    unlockTokens: sanitizeUnlockTokens(raw.unlockTokens),
+    reconnectToken: String(raw.reconnectToken || crypto.randomUUID()),
+    ws: null,
+    disconnectedAt: Number(raw.disconnectedAt || hydratedAt || Date.now()),
+    joinedAt: Number(raw.joinedAt || hydratedAt || Date.now()),
+  };
+}
+
+function hydratePersistedRoom(raw, hydratedAt = Date.now()) {
+  if (!raw || typeof raw !== 'object') return null;
+  const roomId = String(raw.roomId || '').toUpperCase();
+  if (!roomId) return null;
+  const room = createEmptyRoom(roomId);
+  room.p1 = hydrateParticipant(raw.p1, 'p1', hydratedAt);
+  room.p2 = hydrateParticipant(raw.p2, 'p2', hydratedAt);
+  room.spectator = hydrateParticipant(raw.spectator, 'spectator', hydratedAt);
+  room.game = raw.game && typeof raw.game === 'object' ? cloneJsonSafe(raw.game, null) : null;
+  room.controlRequests = serializeControlRequests({ controlRequests: raw.controlRequests });
+  room.updatedAt = Number(raw.updatedAt || hydratedAt || Date.now());
+  room.roomState = computeRoomState(room);
+  return room;
+}
+
+function loadPersistedRooms() {
+  try {
+    if (!fs.existsSync(ROOM_STATE_PATH)) return;
+    const raw = fs.readFileSync(ROOM_STATE_PATH, 'utf-8');
+    if (!raw.trim()) return;
+    const payload = JSON.parse(raw);
+    const list = Array.isArray(payload?.rooms) ? payload.rooms : [];
+    const hydratedAt = Date.now();
+    let restoredCount = 0;
+    list.forEach((entry) => {
+      const room = hydratePersistedRoom(entry, hydratedAt);
+      if (!room) return;
+      const staleAge = hydratedAt - Number(room.updatedAt || hydratedAt);
+      if (!room.p1 && !room.p2 && !room.spectator) return;
+      if (staleAge > ROOM_STALE_DELETE_MS) return;
+      rooms.set(room.roomId, room);
+      restoredCount += 1;
+    });
+    if (restoredCount > 0) {
+      console.log(`保存済みルームを ${restoredCount} 件復元しました。`);
+      scheduleRoomsPersist();
+    }
+  } catch (error) {
+    console.error('保存済みルームの復元に失敗しました。', error);
+  }
+}
+
 function sanitizeDeckPayload(deck) {
   if (!deck || typeof deck !== 'object') return null;
   return {
@@ -710,15 +836,11 @@ function validateDeckPayload(deck, saveKey = '', unlockTokens = []) {
   });
 }
 
-function getReconnectGraceMs(room) {
-  return room?.game ? ACTIVE_GAME_RECONNECT_GRACE_MS : RECONNECT_GRACE_MS;
-}
-
-function participantSnapshot(slot, room = null) {
+function participantSnapshot(slot) {
   if (!slot) return null;
   const connected = Boolean(slot.ws && slot.ws.readyState === 1);
   const disconnectedAt = connected ? 0 : Number(slot.disconnectedAt || 0);
-  const reconnectRemainingMs = disconnectedAt ? Math.max(0, getReconnectGraceMs(room) - (Date.now() - disconnectedAt)) : 0;
+  const reconnectRemainingMs = disconnectedAt ? Math.max(0, RECONNECT_GRACE_MS - (Date.now() - disconnectedAt)) : 0;
   return {
     displayName: slot.displayName,
     deckName: slot.deckName,
@@ -755,172 +877,15 @@ function roomSnapshot(room, role) {
     roomId: room.roomId,
     roomState: room.roomState,
     role,
-    p1: participantSnapshot(room.p1, room),
-    p2: participantSnapshot(room.p2, room),
-    spectator: participantSnapshot(room.spectator, room),
+    p1: participantSnapshot(room.p1),
+    p2: participantSnapshot(room.p2),
+    spectator: participantSnapshot(room.spectator),
     controlRequests: serializeControlRequests(room),
   };
-}
-
-function serializeParticipantForStore(slot) {
-  if (!slot) return null;
-  return {
-    role: slot.role,
-    displayName: String(slot.displayName || ''),
-    deckName: String(slot.deckName || ''),
-    deckPayload: slot.deckPayload ? sanitizeDeckPayload(slot.deckPayload) : null,
-    saveKey: normalizeSaveKey(slot.saveKey || ''),
-    unlockTokens: sanitizeUnlockTokens(slot.unlockTokens),
-    reconnectToken: String(slot.reconnectToken || ''),
-    disconnectedAt: Math.max(0, Number(slot.disconnectedAt || 0)),
-    joinedAt: Math.max(0, Number(slot.joinedAt || 0)),
-  };
-}
-
-function serializeRoomForStore(room) {
-  return {
-    roomId: room.roomId,
-    roomState: computeRoomState(room),
-    p1: serializeParticipantForStore(room.p1),
-    p2: serializeParticipantForStore(room.p2),
-    spectator: serializeParticipantForStore(room.spectator),
-    game: room.game ? JSON.parse(JSON.stringify(room.game)) : null,
-    controlRequests: serializeControlRequests(room),
-    updatedAt: Math.max(0, Number(room.updatedAt || Date.now())),
-  };
-}
-
-function sanitizePersistedParticipant(raw, role) {
-  if (!raw || typeof raw !== 'object') return null;
-  return {
-    role,
-    displayName: String(raw.displayName || '名無しプレイヤー'),
-    deckName: String(raw.deckName || 'デッキ未選択'),
-    deckPayload: role === 'spectator' ? null : sanitizeDeckPayload(raw.deckPayload),
-    saveKey: normalizeSaveKey(raw.saveKey || ''),
-    unlockTokens: sanitizeUnlockTokens(raw.unlockTokens),
-    reconnectToken: String(raw.reconnectToken || crypto.randomUUID()),
-    ws: null,
-    disconnectedAt: Math.max(0, Number(raw.disconnectedAt || 0)),
-    joinedAt: Math.max(0, Number(raw.joinedAt || Date.now())),
-  };
-}
-
-function sanitizePersistedGame(rawGame) {
-  if (!rawGame || typeof rawGame !== 'object') return null;
-  const board = sanitizeBoardSnapshot(rawGame.board);
-  if (!board) return null;
-  const game = {
-    startedAt: Math.max(0, Number(rawGame.startedAt || Date.now())),
-    p1Deck: sanitizeDeckPayload(rawGame.p1Deck),
-    p2Deck: sanitizeDeckPayload(rawGame.p2Deck),
-    phase: ['setup', 'battle', 'finished'].includes(rawGame.phase) ? rawGame.phase : 'setup',
-    currentPlayer: rawGame.currentPlayer === 'player2' ? 'player2' : 'player1',
-    round: Math.max(1, Number(rawGame.round || 1)),
-    itemPhaseOpen: !!rawGame.itemPhaseOpen,
-    itemUsed: !!rawGame.itemUsed,
-    setupStepIndex: Math.max(0, Number(rawGame.setupStepIndex || 0)),
-    placedInCurrentStep: Math.max(0, Number(rawGame.placedInCurrentStep || 0)),
-    board,
-    reserveBattleIds: {
-      player1: Array.isArray(rawGame.reserveBattleIds?.player1) ? rawGame.reserveBattleIds.player1.map(String).filter((id) => validCardIds.has(id)) : [],
-      player2: Array.isArray(rawGame.reserveBattleIds?.player2) ? rawGame.reserveBattleIds.player2.map(String).filter((id) => validCardIds.has(id)) : [],
-    },
-    itemHands: {
-      player1: Array.isArray(rawGame.itemHands?.player1) ? rawGame.itemHands.player1.map(String).filter((id) => validCardIds.has(id)) : [],
-      player2: Array.isArray(rawGame.itemHands?.player2) ? rawGame.itemHands.player2.map(String).filter((id) => validCardIds.has(id)) : [],
-    },
-    fieldIds: {
-      player1: validCardIds.has(String(rawGame.fieldIds?.player1 || '')) ? String(rawGame.fieldIds.player1) : '',
-      player2: validCardIds.has(String(rawGame.fieldIds?.player2 || '')) ? String(rawGame.fieldIds.player2) : '',
-    },
-    placements: Array.isArray(rawGame.placements) ? rawGame.placements : [],
-    turnState: sanitizeTurnStateSnapshot(rawGame.turnState, createTurnState()),
-    pendingRevives: Array.isArray(rawGame.pendingRevives) ? rawGame.pendingRevives : [],
-    pendingRedeploys: Array.isArray(rawGame.pendingRedeploys) ? rawGame.pendingRedeploys : [],
-    winner: rawGame.winner ? String(rawGame.winner) : '',
-    playerStatus: {
-      player1: createPlayerStatus(),
-      player2: createPlayerStatus(),
-    },
-  };
-  if (typeof rawGame.playerStatus?.player1?.negateEnemyFieldUntilOwnTurnStart === 'boolean') {
-    game.playerStatus.player1.negateEnemyFieldUntilOwnTurnStart = rawGame.playerStatus.player1.negateEnemyFieldUntilOwnTurnStart;
-  }
-  if (typeof rawGame.playerStatus?.player2?.negateEnemyFieldUntilOwnTurnStart === 'boolean') {
-    game.playerStatus.player2.negateEnemyFieldUntilOwnTurnStart = rawGame.playerStatus.player2.negateEnemyFieldUntilOwnTurnStart;
-  }
-  normalizePendingRedeploys(game);
-  return game;
-}
-
-function persistRoomsToDisk() {
-  try {
-    const payload = {
-      savedAt: Date.now(),
-      rooms: Array.from(rooms.values()).map((room) => serializeRoomForStore(room)),
-    };
-    const tempPath = `${ROOM_STORE_PATH}.tmp`;
-    fs.writeFileSync(tempPath, JSON.stringify(payload), 'utf-8');
-    fs.renameSync(tempPath, ROOM_STORE_PATH);
-  } catch (error) {
-    console.error('ルーム状態の保存に失敗しました。', error);
-  }
-}
-
-function restorePersistedRooms() {
-  try {
-    if (!fs.existsSync(ROOM_STORE_PATH)) return;
-    const raw = JSON.parse(fs.readFileSync(ROOM_STORE_PATH, 'utf-8'));
-    const storedRooms = Array.isArray(raw?.rooms) ? raw.rooms : [];
-    const now = Date.now();
-    let restoredCount = 0;
-    storedRooms.forEach((stored) => {
-      const roomId = String(stored?.roomId || '').toUpperCase();
-      if (!roomId || rooms.has(roomId)) return;
-      const room = createEmptyRoom(roomId);
-      room.p1 = sanitizePersistedParticipant(stored?.p1, 'p1');
-      room.p2 = sanitizePersistedParticipant(stored?.p2, 'p2');
-      room.spectator = sanitizePersistedParticipant(stored?.spectator, 'spectator');
-      room.game = sanitizePersistedGame(stored?.game);
-      room.controlRequests = {
-        rematch: {
-          p1: !!stored?.controlRequests?.rematch?.p1,
-          p2: !!stored?.controlRequests?.rematch?.p2,
-        },
-        reset: {
-          p1: !!stored?.controlRequests?.reset?.p1,
-          p2: !!stored?.controlRequests?.reset?.p2,
-        },
-      };
-      room.updatedAt = Math.max(0, Number(stored?.updatedAt || Date.now()));
-      if (room.game && room.p1 && !room.game.p1Deck) room.game.p1Deck = sanitizeDeckPayload(room.p1.deckPayload);
-      if (room.game && room.p2 && !room.game.p2Deck) room.game.p2Deck = sanitizeDeckPayload(room.p2.deckPayload);
-      ['p1', 'p2', 'spectator'].forEach((role) => {
-        const slot = room[role];
-        if (!slot || !slot.disconnectedAt) return;
-        if ((now - slot.disconnectedAt) > getReconnectGraceMs(room)) {
-          room[role] = null;
-        }
-      });
-      room.roomState = computeRoomState(room);
-      if (!room.p1 && !room.p2 && !room.spectator) return;
-      rooms.set(roomId, room);
-      restoredCount += 1;
-    });
-    if (restoredCount) {
-      console.log(`保存済みルームを ${restoredCount} 件復元しました。`);
-      persistRoomsToDisk();
-    }
-  } catch (error) {
-    console.error('保存済みルームの復元に失敗しました。', error);
-  }
 }
 
 function broadcastRoom(room, noticeMessage = '') {
-  room.roomState = computeRoomState(room);
-  room.updatedAt = Date.now();
-  persistRoomsToDisk();
+  markRoomChanged(room);
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([role, slot]) => {
     if (slot?.ws) {
       send(slot.ws, roomSnapshot(room, role));
@@ -936,9 +901,7 @@ function startRoomGameRound(room, startNotice = '') {
   }
   clearRoomControlRequests(room);
   room.game = createInitialGameState(room);
-  room.roomState = computeRoomState(room);
-  room.updatedAt = Date.now();
-  persistRoomsToDisk();
+  markRoomChanged(room);
   const payload = makeGameStartedPayload(room);
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([role, slot]) => {
     if (slot?.ws) {
@@ -985,8 +948,6 @@ function attachParticipant(room, role, data, ws) {
   };
   ws.meta = { roomId: room.roomId, role, reconnectToken };
   room.roomState = computeRoomState(room);
-  room.updatedAt = Date.now();
-  persistRoomsToDisk();
   send(ws, {
     type: 'room_joined',
     roomId: room.roomId,
@@ -994,9 +955,9 @@ function attachParticipant(room, role, data, ws) {
     role,
     reconnectToken,
     deckName: room[role].deckName,
-    p1: participantSnapshot(room.p1, room),
-    p2: participantSnapshot(room.p2, room),
-    spectator: participantSnapshot(room.spectator, room),
+    p1: participantSnapshot(room.p1),
+    p2: participantSnapshot(room.p2),
+    spectator: participantSnapshot(room.spectator),
     game: makeGameStartedPayload(room),
   });
   broadcastRoom(room, `${role.toUpperCase()} が参加しました。`);
@@ -1112,8 +1073,7 @@ function finalizeRoomGameIfNeeded(room, explicitMessage = '') {
   room.game.phase = 'finished';
   room.game.winner = finishMessage;
   room.roomState = 'finished';
-  room.updatedAt = Date.now();
-  persistRoomsToDisk();
+  markRoomChanged(room);
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([role, slot]) => {
     if (!slot?.ws) return;
     send(slot.ws, roomSnapshot(room, role));
@@ -1850,9 +1810,7 @@ function mergePublicStateSnapshot(room, payload, playerKey) {
     }
   });
 
-  room.updatedAt = Date.now();
-  room.roomState = computeRoomState(room);
-  persistRoomsToDisk();
+  markRoomChanged(room);
   const finishMessage = room.game.phase === 'finished' ? (room.game.winner || getEliminationFinishMessage(room.game) || '対戦が終了しました') : getEliminationFinishMessage(room.game);
   const payloadOut = {
     type: 'battle_state_synced',
@@ -1908,6 +1866,7 @@ function handleCreateRoom(data, ws) {
   while (rooms.has(roomId)) roomId = makeRoomId();
   const room = createEmptyRoom(roomId);
   rooms.set(roomId, room);
+  scheduleRoomsPersist();
   attachParticipant(room, 'p1', { ...data, deckPayload, ...unlockAuth }, ws);
 }
 
@@ -1949,15 +1908,14 @@ function handleReconnectRoom(data, ws) {
     const slot = room[role];
     if (slot && slot.reconnectToken === data.reconnectToken) {
       const disconnectedAt = Number(slot.disconnectedAt || 0);
-      if (disconnectedAt && (Date.now() - disconnectedAt) > getReconnectGraceMs(room)) {
+      if (disconnectedAt && (Date.now() - disconnectedAt) > RECONNECT_GRACE_MS) {
         send(ws, { type: 'error', message: '復帰猶予を過ぎたため、この立場には戻れません。' });
         return;
       }
       slot.ws = ws;
       slot.disconnectedAt = 0;
-      room.updatedAt = Date.now();
-      persistRoomsToDisk();
       ws.meta = { roomId: room.roomId, role, reconnectToken: slot.reconnectToken };
+      markRoomChanged(room);
       send(ws, {
         type: 'room_joined',
         roomId: room.roomId,
@@ -2067,8 +2025,6 @@ function handlePlaceSetupUnit(data, ws) {
   };
   game.placements.push(placement);
   room.roomState = computeRoomState(room);
-  room.updatedAt = Date.now();
-  persistRoomsToDisk();
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([role, slot]) => {
     if (slot?.ws) {
       send(slot.ws, { type: 'setup_unit_placed', roomId: room.roomId, ...placement });
@@ -2160,6 +2116,7 @@ function handleMoveUnit(data, ws) {
       game.turnState.moved = true;
     }
   }
+  markRoomChanged(room);
   const payload = {
     type: 'move_applied',
     roomId: room.roomId,
@@ -2170,8 +2127,6 @@ function handleMoveUnit(data, ws) {
     currentPlayer: game.currentPlayer,
   };
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([_, slot]) => slot?.ws && send(slot.ws, payload));
-  room.updatedAt = Date.now();
-  persistRoomsToDisk();
 }
 
 function handleAttackUnit(data, ws) {
@@ -2237,6 +2192,7 @@ function handleAttackUnit(data, ws) {
     game.turnState.royalCommandAttackReady = false;
     game.turnState.royalCommandUnitId = null;
   }
+  markRoomChanged(room);
   const payload = {
     type: 'attack_applied',
     roomId: room.roomId,
@@ -2247,8 +2203,6 @@ function handleAttackUnit(data, ws) {
     currentPlayer: game.currentPlayer,
   };
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([_, slot]) => slot?.ws && send(slot.ws, payload));
-  room.updatedAt = Date.now();
-  persistRoomsToDisk();
 }
 
 function handleUseItem(data, ws) {
@@ -2300,6 +2254,7 @@ function handleUseItem(data, ws) {
   game.turnState.itemWindowOpen = false;
   game.turnState.itemUsed = true;
   applyServerSideItemEffects(game, playerKey, cardId, targetIndex);
+  markRoomChanged(room);
   const payload = {
     type: 'item_used',
     roomId: room.roomId,
@@ -2309,8 +2264,6 @@ function handleUseItem(data, ws) {
     targetIndex,
   };
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([_, slot]) => slot?.ws && send(slot.ws, payload));
-  room.updatedAt = Date.now();
-  persistRoomsToDisk();
 }
 
 function handleFinishItemPhase(data, ws) {
@@ -2338,6 +2291,7 @@ function handleFinishItemPhase(data, ws) {
   }
   game.itemPhaseOpen = false;
   game.turnState.itemWindowOpen = false;
+  markRoomChanged(room);
   const payload = {
     type: 'item_phase_finished',
     roomId: room.roomId,
@@ -2345,8 +2299,6 @@ function handleFinishItemPhase(data, ws) {
     currentPlayer: game.currentPlayer,
   };
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([_, slot]) => slot?.ws && send(slot.ws, payload));
-  room.updatedAt = Date.now();
-  persistRoomsToDisk();
 }
 
 function handleEndTurn(data, ws) {
@@ -2379,6 +2331,7 @@ function handleEndTurn(data, ws) {
   if (previousPlayer === 'player2') nextRound += 1;
   game.round = nextRound;
   beginTurn(game, nextPlayer);
+  markRoomChanged(room);
   const payload = {
     type: 'turn_ended',
     roomId: room.roomId,
@@ -2387,8 +2340,6 @@ function handleEndTurn(data, ws) {
     round: nextRound,
   };
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([_, slot]) => slot?.ws && send(slot.ws, payload));
-  room.updatedAt = Date.now();
-  persistRoomsToDisk();
 }
 
 function handleSyncPublicState(data, ws) {
@@ -2433,7 +2384,7 @@ function handleRoomActionRequest(data, ws) {
       }
     });
     rooms.delete(room.roomId);
-    persistRoomsToDisk();
+    scheduleRoomsPersist();
     return;
   }
 
@@ -2477,8 +2428,7 @@ function handleRoomActionRequest(data, ws) {
   if (!room.controlRequests) clearRoomControlRequests(room);
   const requested = data.requested !== false;
   room.controlRequests[action][meta.role] = requested;
-  room.updatedAt = Date.now();
-  persistRoomsToDisk();
+  markRoomChanged(room);
 
   const actorLabel = meta.role.toUpperCase();
   const actionLabel = action === 'rematch' ? '再戦' : 'リセット';
@@ -2510,7 +2460,7 @@ function removeConnection(ws) {
   if (slot.reconnectToken === meta.reconnectToken) {
     slot.ws = null;
     slot.disconnectedAt = Date.now();
-    broadcastRoom(room, `${slot.displayName} が切断しました。あとで同じ立場に復帰できます。`);
+    broadcastRoom(room, `${slot.displayName} が切断しました。しばらく待っても同じ立場で復帰できます。`);
   }
 }
 
@@ -2521,21 +2471,27 @@ function cleanupExpiredReconnectSlots() {
     for (const role of ['p1', 'p2', 'spectator']) {
       const slot = room[role];
       if (!slot || slot.ws || !slot.disconnectedAt) continue;
-      if ((now - slot.disconnectedAt) <= getReconnectGraceMs(room)) continue;
+      if ((now - slot.disconnectedAt) <= RECONNECT_GRACE_MS) continue;
       room[role] = null;
-      changed = true;
+      changed = true
       broadcastRoom(room, `${slot.displayName} の復帰猶予が切れました。`);
     }
-    if (!room.p1 && !room.p2 && !room.spectator) {
+    const roomIdleMs = now - Number(room.updatedAt || now);
+    if (!room.p1 && !room.p2 && !room.spectator && roomIdleMs > RECONNECT_GRACE_MS) {
       rooms.delete(room.roomId);
-      changed = true;
+      changed = true
+      continue;
+    }
+    if (room.game?.phase === 'finished' && roomIdleMs > ROOM_STALE_DELETE_MS) {
+      rooms.delete(room.roomId);
+      changed = true
     }
   }
-  if (changed) persistRoomsToDisk();
+  if (changed) scheduleRoomsPersist();
 }
 
+loadPersistedRooms();
 setInterval(cleanupExpiredReconnectSlots, 15000);
-restorePersistedRooms();
 
 const server = http.createServer(async (req, res) => {
   const reqUrl = new URL(req.url, `http://${req.headers.host}`);
@@ -2618,7 +2574,6 @@ wss.on('connection', (ws) => {
         case 'join_room': handleJoinRoom(data, ws, false); break;
         case 'spectate_room': handleJoinRoom(data, ws, true); break;
         case 'reconnect_room': handleReconnectRoom(data, ws); break;
-        case 'heartbeat': send(ws, { type: 'heartbeat_ack', roomId: ws.meta?.roomId || String(data.roomId || '').toUpperCase() || '' }); break;
         case 'start_game': handleStartGame(data, ws); break;
         case 'place_setup_unit': handlePlaceSetupUnit(data, ws); break;
         case 'move_unit': handleMoveUnit(data, ws); break;
@@ -2628,6 +2583,7 @@ wss.on('connection', (ws) => {
         case 'end_turn': handleEndTurn(data, ws); break;
         case 'sync_public_state': handleSyncPublicState(data, ws); break;
         case 'room_action_request': handleRoomActionRequest(data, ws); break;
+        case 'ping': send(ws, { type: 'pong', at: Date.now() }); break;
         default: send(ws, { type: 'error', message: '未対応のメッセージです。' }); break;
       }
     } catch (error) {
@@ -2638,6 +2594,18 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => removeConnection(ws));
 });
+
+function flushRoomsNow() {
+  if (persistRoomsTimer) {
+    clearTimeout(persistRoomsTimer);
+    persistRoomsTimer = null;
+  }
+  writeRoomsToDisk();
+}
+
+process.on('SIGTERM', flushRoomsNow);
+process.on('SIGINT', flushRoomsNow);
+process.on('beforeExit', flushRoomsNow);
 
 server.listen(PORT, HOST, () => {
   console.log(`RED VEIN room server: http://localhost:${PORT}`);
