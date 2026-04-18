@@ -615,7 +615,7 @@ ${roomLog.textContent}` : line;
         }
         return;
       }
-      sendMessage({ type: 'heartbeat', roomId: currentRoomId || '' }, { silent: true });
+      sendMessage({ type: 'ping', roomId: currentRoomId || '' }, { silent: true });
     }, SOCKET_HEARTBEAT_INTERVAL_MS);
   }
 
@@ -925,7 +925,7 @@ ${roomLog.textContent}` : line;
       return;
     }
 
-    if (data.type === 'heartbeat_ack') {
+    if (data.type === 'heartbeat_ack' || data.type === 'pong') {
       return;
     }
 

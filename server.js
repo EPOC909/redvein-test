@@ -2584,6 +2584,7 @@ wss.on('connection', (ws) => {
         case 'sync_public_state': handleSyncPublicState(data, ws); break;
         case 'room_action_request': handleRoomActionRequest(data, ws); break;
         case 'ping': send(ws, { type: 'pong', at: Date.now() }); break;
+        case 'heartbeat': send(ws, { type: 'heartbeat_ack', at: Date.now() }); break;
         default: send(ws, { type: 'error', message: '未対応のメッセージです。' }); break;
       }
     } catch (error) {
